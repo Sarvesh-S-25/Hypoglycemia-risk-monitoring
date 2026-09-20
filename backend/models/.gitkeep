@@ -1,0 +1,3 @@
+Place your trained model here, exported to ONNX (e.g. risk_model.onnx),
+then set GS_MODEL_PATH=./models/<your-file>.onnx in backend/.env.
+See backend/.env.example for the full instructions.

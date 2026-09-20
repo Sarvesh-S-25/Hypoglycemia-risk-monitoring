@@ -1,0 +1,7 @@
+.panel {
+  background: var(--gs-surface-white);
+  border-radius: var(--gs-radius-inner);
+  box-shadow: var(--gs-shadow-panel);
+  padding: 20px;
+  color: var(--gs-ink);
+}

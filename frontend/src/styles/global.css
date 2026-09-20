@@ -1,0 +1,151 @@
+/*
+ * Global reset, typography and layout utilities. Design language and every
+ * value here follows docs/DESIGN_SYSTEM.md -- see tokens.css for the values
+ * themselves.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap');
+@import './tokens.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--gs-bg);
+  color: var(--gs-ink);
+  font-family: var(--gs-font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--gs-font-display);
+  font-weight: 400;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* --- Layout ----------------------------------------------------------- */
+
+.gs-page {
+  max-width: var(--gs-maxw);
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+}
+
+.gs-section {
+  margin-top: 64px;
+}
+
+.gs-section:first-child {
+  margin-top: 0;
+}
+
+.gs-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--gs-gap);
+}
+
+.gs-span-4 { grid-column: span 4; }
+.gs-span-5 { grid-column: span 5; }
+.gs-span-7 { grid-column: span 7; }
+.gs-span-8 { grid-column: span 8; }
+.gs-span-12 { grid-column: span 12; }
+
+@media (max-width: 1199px) {
+  .gs-span-4, .gs-span-5, .gs-span-7, .gs-span-8 {
+    grid-column: span 12;
+  }
+}
+
+/* --- Typography utilities ----------------------------------------------- */
+
+.gs-eyebrow {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gs-ink-muted);
+  margin: 0 0 12px;
+}
+
+.gs-display {
+  font-family: var(--gs-font-display);
+  font-size: 44px;
+  line-height: 1.12;
+  font-weight: 400;
+}
+
+.gs-display .tail {
+  color: var(--gs-ink-faint);
+}
+
+.gs-card-title {
+  font-family: var(--gs-font-display);
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 400;
+  margin: 0 0 8px;
+}
+
+.gs-body {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--gs-ink-muted);
+}
+
+.gs-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gs-ink-faint);
+  margin: 0 0 4px;
+  display: block;
+}
+
+.gs-metric {
+  font-family: var(--gs-font-display);
+  font-size: 40px;
+  line-height: 1;
+  font-weight: 400;
+  color: var(--gs-ink);
+}
+
+.gs-mono {
+  font-family: var(--gs-font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* --- Grid overlay (dark cards + section divider band) -------------------- */
+
+.gs-grid-overlay-dark {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.gs-grid-band {
+  height: 48px;
+  margin: 64px 0;
+  background-image:
+    linear-gradient(to right, rgba(20, 25, 26, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 25, 26, 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+}

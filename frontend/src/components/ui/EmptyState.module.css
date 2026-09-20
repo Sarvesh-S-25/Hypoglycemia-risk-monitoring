@@ -1,0 +1,21 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 160px;
+  gap: 6px;
+  padding: 24px;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gs-ink-muted);
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--gs-ink-faint);
+}

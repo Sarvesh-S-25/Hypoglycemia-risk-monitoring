@@ -1,0 +1,34 @@
+.card {
+  border-radius: var(--gs-radius-card);
+  padding: var(--gs-pad-card);
+  position: relative;
+  overflow: hidden;
+}
+
+.dark {
+  background: var(--gs-surface-dark);
+  color: var(--gs-ink-invert);
+}
+
+.grey {
+  background: var(--gs-surface-grey);
+  color: var(--gs-ink);
+}
+
+.lime {
+  background: var(--gs-lime);
+  color: var(--gs-ink);
+}
+
+.plain {
+  background: transparent;
+  color: var(--gs-ink);
+  padding: 0;
+}
+
+.gridOverlay {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}

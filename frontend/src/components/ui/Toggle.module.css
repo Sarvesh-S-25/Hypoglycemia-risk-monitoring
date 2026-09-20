@@ -1,0 +1,46 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.label {
+  font-size: 14px;
+  color: var(--gs-ink);
+}
+
+.track {
+  width: 52px;
+  height: 30px;
+  border-radius: var(--gs-radius-pill);
+  background: var(--gs-line);
+  position: relative;
+  transition: background var(--gs-transition);
+  flex-shrink: 0;
+}
+
+.track.on {
+  background: var(--gs-surface-dark);
+}
+
+.knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--gs-surface-white);
+  box-shadow: var(--gs-shadow-pop);
+  transition: transform var(--gs-transition);
+}
+
+.track.on .knob {
+  transform: translateX(22px);
+}

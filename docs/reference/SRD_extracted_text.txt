@@ -1,0 +1,454 @@
+
+===== PAGE 1 =====
+Software Requirements Document
+(SRD)
+GlucoSentry — ECG-Based Adaptive
+Hypoglycemia Monitoring System
+Version: 1.0
+Prepared for: Embedded Systems Project (Review 2 build
+phase)
+Author: Nithish Kannan M
+1. Introduction
+1.1 Purpose
+This document speciﬁes the software (frontend + backend)
+and hardware-interface requirements needed to build
+GlucoSentry: a wearable ECG-based hypoglycemia risk
+monitor with an adaptive, energy-aware controller and an on-
+demand auxiliary foot-temperature check module.
+1.2 Scope
+Covers three integrated subsystems:
+Hardware layer — ESP32 ﬁrmware, sensor acquisition,
+BLE communication
+
+===== PAGE 2 =====
+Backend — inference engine, controller logic, data
+persistence, API
+Frontend — live monitoring dashboard
+Out of scope: mobile app, cloud deployment, multi-user
+accounts (single-wearer prototype only).
+1.3 Locked Architecture Reference
+ECG (AD8232+ADS1115) →  ESP32 (filter+SQI via 
+MPU6050) →  BLE
+    →  Host: CNN+BiLSTM →  risk score
+    →  Controller →  { ECG mode, alert, auxiliary 
+foot-check }
+                                    →  bilateral 
+temp clip (BLE, on-demand)
+2. System Overview
+Layer Technology Responsibility
+Hardware —
+primary
+node
+ESP32 (C/C++,
+Arduino or ESP-
+IDF)
+ECG sampling, ﬁltering,
+SQI gating, BLE TX/RX,
+actuator control
+Hardware —
+auxiliary
+node
+ESP32-C3 (low-
+power)
+Dormant by default;
+wakes on BLE prompt,
+takes bilateral temp
+reading, sleeps
+Backend Python —
+FastAPI
+Model inference,
+controller logic, BLE
+gateway, REST +
+
+===== PAGE 3 =====
+Layer Technology Responsibility
+WebSocket API,
+persistence
+ML
+PyTorch
+(training) →
+ONNX Runtime
+(serving)
+CNN+BiLSTM risk
+inference
+Database SQLite
+Session history, risk log,
+foot-check log, device
+state
+Frontend React + Vite
+Live dashboard: ECG
+trace, risk trend,
+controller mode, foot-
+check history, alerts
+Charts Recharts or
+Chart.js
+ECG waveform, risk trace,
+temperature asymmetry
+over time
+3. Hardware ↔  Software Interface
+3.1 Primary Node (ESP32) Responsibilities
+Sample AD8232 output via ADS1115 at 250 Hz using a
+hardware timer interrupt
+Apply bandpass (0.5–40 Hz) + 50 Hz notch ﬁltering on-
+device
+Read MPU6050 continuously; compute a signal-quality
+index (SQI) from motion magnitude
+
+===== PAGE 4 =====
+Reject/ﬂag windows below SQI threshold — do not
+transmit them
+Decimate ﬁltered signal to 100 Hz; buffer into 30–60 sec
+windows
+Transmit clean windows over BLE to host
+Receive controller commands over BLE (mode change,
+alert trigger, auxiliary wake) and act on them (adjust
+sampling rate, drive vibration motor, forward wake signal
+to auxiliary node)
+Monitor AD8232 LO+/LO- pins; report leads-off state
+3.2 Auxiliary Node (ESP32-C3) Responsibilities
+Remain in deep sleep by default
+Wake on BLE prompt from primary node/backend
+Read both thermistors, compute bilateral ΔT
+Transmit result (ΔT, validity ﬂag) over BLE
+Return to deep sleep
+3.3 BLE GATT Proﬁle (draft — ﬁnalize during
+ﬁrmware bring-up)
+Primary Node Service
+Characteristic Direction Format Purpose
+ecg_data
+Notify
+(device → host)
+Binary
+array,
+int16
+samples +
+timestamp
+Windowed
+ﬁltered ECG
+stream
+
+===== PAGE 5 =====
+Characteristic Direction Format Purpose
+sqi_flag Notify uint8
+Per-window
+signal quality
+(0=reject,
+1=accept)
+device_status Notify
+struct
+{battery:
+uint8,
+mode:
+uint8,
+leads_off:
+bool}
+Periodic
+health/status
+report
+controller_cmd
+Write
+(host → device)
+uint8
+enum
+Mode
+command:
+0=Eco,
+1=Normal,
+2=Watch,
+3=Verify
+alert_cmd Write uint8
+Trigger
+vibration
+motor
+aux_wake_cmd Write uint8
+Forward
+wake signal
+to auxiliary
+node
+Auxiliary Node Service
+
+===== PAGE 6 =====
+Characteristic Direction Format Purpose
+wake Write uint8
+Wake
+trigger
+foot_temp_result Notify
+struct
+{t_left: ﬂoat,
+t_right:
+ﬂoat, delta:
+ﬂoat, valid:
+bool}
+Bilateral
+reading
+result
+3.4 Data Format — ECG Window Packet (BLE →
+Backend)
+{
+  "device_id": "esp32_primary_01",
+  "window_start_ts": 1732000000.0,
+  "sample_rate_hz": 100,
+  "sqi": 1,
+  "samples": [int16, int16, ...],
+  "battery_pct": 78
+}
+4. Backend Requirements
+4.1 Core Modules
+Module Responsibility
+ble_gateway.py Maintains BLE connection to
+primary/auxiliary nodes; parses
+
+===== PAGE 7 =====
+Module Responsibility
+incoming packets; queues
+outgoing commands
+signal_pipeline.py
+Receives ECG windows, conﬁrms
+SQI, reshapes for model input
+inference.py
+Loads CNN+BiLSTM (ONNX), runs
+sliding-window inference, outputs
+risk score
+controller.py
+State machine / RL policy: decides
+ECG mode, alert ﬁring, auxiliary
+wake timing
+db.py
+SQLite read/write — sessions, risk
+log, foot-check log, device state
+api/routes.py FastAPI REST endpoints
+api/ws.py
+WebSocket for live dashboard
+streaming
+4.2 REST API Endpoints
+Method Endpoint Purpose
+GET /api/status
+Current device
+status (battery,
+mode, connection
+state)
+GET /api/risk/current
+Latest hypoglycemia
+risk score
+
+===== PAGE 8 =====
+Method Endpoint Purpose
+GET
+/api/risk/history?
+range=1h
+Risk score time
+series
+GET /api/ecg/latest
+Most recent ECG
+window (for
+waveform display)
+GET /api/foot/history
+Foot-check log
+(timestamp, ΔT,
+validity, action taken)
+POST /api/foot/request
+Manually trigger an
+auxiliary foot check
+(testing/demo use)
+POST /api/controller/mode
+Manually override
+ECG mode
+(testing/demo use)
+GET /api/session/export
+Export session log
+as CSV (for
+report/evaluation)
+4.3 WebSocket Stream (/ws/live)
+Pushes to frontend, on each new event:
+{ "type": "ecg_sample", "data": {...} }
+{ "type": "risk_update", "data": {"score": 0.34, 
+"mode": "Normal"} }
+{ "type": "alert", "data": {"level": "high", 
+"timestamp": ...} }
+
+===== PAGE 9 =====
+{ "type": "foot_check_result", "data": {"delta_t": 
+1.1, "valid": true} }
+4.4 Controller Logic (backend-resident)
+ECG mode selection — discrete states, not continuous
+parameters:
+Mode Sampling
+Inference
+interval Trigger condition
+Eco 100 Hz Sparse
+Risk low, battery low,
+SQI stable
+Normal 200 Hz Normal Default operating
+state
+Watch 250 Hz Frequent Risk trending upward
+Verify 250 Hz
+Continuous
+burst
+Risk crosses alert
+threshold — conﬁrm
+before ﬁring
+Auxiliary foot-check scheduling — deterministic state
+machine (baseline implementation):
+if previous_check_result == "normal": next_check = 
+24h
+if previous_check_result == "elevated": next_check 
+= 8h
+if last_check_invalid: retry in 1h
+if scheduled_time_reached and battery_sufficient: 
+wake_auxiliary_node()
+
+===== PAGE 10 =====
+An RL/Q-learning variant of this scheduler is built and
+evaluated separately as a comparative experiment — not a
+dependency for the working demo.
+4.5 Database Schema (SQLite)
+CREATE TABLE ecg_windows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL NOT NULL,
+    sqi INTEGER NOT NULL,
+    risk_score REAL,
+    mode TEXT
+);
+CREATE TABLE alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL NOT NULL,
+    risk_score REAL NOT NULL,
+    acknowledged BOOLEAN DEFAULT 0
+);
+CREATE TABLE foot_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL NOT NULL,
+    t_left REAL,
+    t_right REAL,
+    delta_t REAL,
+    valid BOOLEAN,
+    next_check_scheduled REAL
+);
+CREATE TABLE device_status (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL NOT NULL,
+    battery_pct INTEGER,
+
+===== PAGE 11 =====
+    mode TEXT,
+    leads_off BOOLEAN
+);
+5. Frontend Requirements
+5.1 Pages/Views
+Main Dashboard
+Live ECG waveform (scrolling, last ~10 sec) — via
+WebSocket
+Rolling hypoglycemia-risk trace (line chart, last 1–6 hr,
+selectable range)
+Current controller mode indicator
+(Eco/Normal/Watch/Verify) with color coding
+Battery status, BLE connection status, signal-quality
+indicator
+Alert banner (dismissible) on high-risk events
+Foot-Check Panel
+Last check result (ΔT, timestamp, valid/invalid)
+History table/chart of ΔT over time (ﬂag values >2.2°C per
+IWGDF reference threshold, cited as background, not
+diagnostic claim)
+Next scheduled check countdown
+Manual "request check now" button (demo/testing)
+Session/Report View
+
+===== PAGE 12 =====
+Session summary: duration, alerts ﬁred, mode-time
+breakdown (time spent in each ECG mode — useful for
+the battery-life result)
+Export button (CSV via /api/session/export )
+5.2 Component Structure (React)
+src/
+  components/
+    ECGWaveform.jsx       — live scrolling ECG 
+chart
+    RiskTrend.jsx         — risk score line chart
+    ModeIndicator.jsx     — current controller 
+mode badge
+    AlertBanner.jsx       — dismissible high-risk 
+alert
+    FootCheckPanel.jsx    — foot-check history + 
+manual trigger
+    DeviceStatus.jsx      — battery/BLE/SQI status 
+bar
+    SessionSummary.jsx    — mode-time breakdown, 
+export
+  hooks/
+    useWebSocket.js       — live stream 
+subscription
+    useApi.js             — REST call wrapper
+  App.jsx
+5.3 Non-Functional (Frontend)
+Dashboard must reﬂect a new risk score within 2 sec of
+backend computing it (WebSocket, not polling)
+Must render correctly with no data (device disconnected)
+— don't crash on empty state
+
+===== PAGE 13 =====
+Chart libraries: Recharts (React-native) preferred over
+Chart.js for tighter React integration
+6. Non-Functional Requirements
+(System-Wide)
+Requirement Target
+End-to-end latency
+(ECG sample →
+dashboard risk update)
+< 3 sec
+End-to-end latency
+(sustained risk →  alert
+ﬁred)
+< 5 sec across veriﬁcation
+windows
+Primary node battery
+life (Normal mode)
+Target established via
+measurement — key result, not
+assumed
+BLE range Suﬃcient for on-body wear, host
+within same room
+False-alert rate
+Measured and reported, not just
+claimed — sustained-window logic
+exists speciﬁcally to reduce this
+Data privacy
+Local-only storage (SQLite on
+host); no cloud transmission in
+prototype scope
+
+===== PAGE 14 =====
+7. Build Sequence (maps to locked
+development plan)
+1. ESP32 ﬁrmware: ADC sampling + ﬁltering + SQI, veriﬁed
+via serial/logic analyzer before BLE is added
+2. BLE link: primary node →  backend, raw window transfer
+conﬁrmed
+3. Backend inference: CNN+BiLSTM served via ONNX
+Runtime, tested oﬄine on D1NAMO before live data
+4. Controller: discrete mode state machine implemented
+and tested against simulated risk/battery inputs
+5. Auxiliary node: bring up independently, conﬁrm
+wake/sleep/BLE cycle before integrating with controller
+6. Frontend: build against mocked WebSocket data ﬁrst,
+then connect to live backend
+7. Full integration: live ECG →  risk →  controller →
+alert/mode-change/foot-check-prompt, on real hardware
+8. Evaluation: battery-life and false-alert-rate comparison,
+adaptive vs. ﬁxed-rate baseline
+8. Acceptance Criteria
+[ ] Live ECG visible on dashboard within 3 sec of device
+power-on
+[ ] Risk score updates continuously and visibly changes
+controller mode at deﬁned thresholds
+[ ] Vibration alert ﬁres only after sustained-risk
+conﬁrmation (demonstrable via induced test signal, not
+
+===== PAGE 15 =====
+real hypoglycemia)
+[ ] Auxiliary node remains asleep unless explicitly woken;
+wake-to-result cycle completes and logs correctly
+[ ] Session export produces a usable CSV for the
+evaluation report
+[ ] Battery-life comparison (adaptive vs. ﬁxed-rate)
+produces a measured, reportable number

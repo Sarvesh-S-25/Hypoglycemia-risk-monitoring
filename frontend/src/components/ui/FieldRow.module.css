@@ -1,0 +1,45 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--gs-surface-white);
+  border: 1px solid var(--gs-line);
+  border-radius: var(--gs-radius-field);
+  padding: 14px;
+}
+
+.chip {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--gs-surface-grey);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.chipActive {
+  background: var(--gs-lime);
+  color: var(--gs-lime-ink);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gs-ink);
+}
+
+.trailing {
+  flex-shrink: 0;
+  color: var(--gs-ink-muted);
+}

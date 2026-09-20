@@ -1,0 +1,74 @@
+/*
+ * Design tokens -- copied verbatim from docs/DESIGN_SYSTEM.md. Every value a
+ * component needs lives here. Per AGENTS.md: no hard-coded hex values, no new
+ * fonts, no new radii in component files -- add the token here (and to the
+ * doc) instead.
+ */
+
+:root {
+  /* Canvas */
+  --gs-bg: #FBFCF7;
+  --gs-bg-alt: #EFEFEA;
+
+  /* Surfaces */
+  --gs-surface-dark: #1B2821;
+  --gs-surface-dark-2: #27362F;
+  --gs-surface-grey: #EBECE6;
+  --gs-surface-white: #FFFFFF;
+  --gs-surface-inner: #C8C9C3;
+
+  /* Accent */
+  --gs-lime: #D0FF63;
+  --gs-lime-ink: #395E01;
+  --gs-lime-soft: #DDFF92;
+
+  /* Ink */
+  --gs-ink: #14191A;
+  --gs-ink-muted: #5C635F;
+  --gs-ink-faint: #9AA09B;
+  --gs-ink-invert: #FAFBF5;
+  --gs-ink-invert-mut: #A8B2AB;
+
+  /* Hairlines */
+  --gs-line: #DEDFD8;
+  --gs-line-dark: #33423A;
+
+  /* Semantic / clinical (additions -- see DESIGN_SYSTEM.md section 2.1) */
+  --gs-mode-eco: #7E8C7F;
+  --gs-mode-normal: #2F6D4F;
+  --gs-mode-watch: #B8862B;
+  --gs-mode-verify: #B2452F;
+
+  --gs-ok: #2F6D4F;
+  --gs-warn: #B8862B;
+  --gs-danger: #B2452F;
+  --gs-trace: #1B2821;
+  --gs-trace-stale: #C8C9C3;
+
+  /* Typography */
+  --gs-font-display: "Instrument Serif", "Newsreader", Georgia, serif;
+  --gs-font-sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+  --gs-font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
+
+  /* Geometry */
+  --gs-radius-card: 24px;
+  --gs-radius-inner: 16px;
+  --gs-radius-field: 12px;
+  --gs-radius-pill: 999px;
+
+  --gs-gap: 16px;
+  --gs-pad-card: 32px;
+  --gs-maxw: 1180px;
+
+  --gs-shadow-panel: 0 18px 40px -24px rgba(20, 25, 26, 0.35);
+  --gs-shadow-pop: 0 2px 8px -2px rgba(20, 25, 26, 0.18);
+
+  /* Motion */
+  --gs-transition: 160ms ease;
+}
+
+@media (max-width: 899px) {
+  :root {
+    --gs-pad-card: 24px;
+  }
+}
