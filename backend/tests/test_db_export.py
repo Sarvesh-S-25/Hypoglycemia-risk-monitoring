@@ -12,14 +12,25 @@ import pytest
 from app.db import Database
 
 
+@pytest.fixture
+async def db(tmp_path: Path):
+    """Always closed, even when a test fails: aiosqlite runs each connection
+    on a non-daemon thread, so a connection left open keeps the pytest
+    process alive forever after every test has already passed."""
+    database = Database(tmp_path / "test.db")
+    await database.connect()
+    try:
+        yield database
+    finally:
+        await database.close()
+
+
 @pytest.mark.asyncio
-async def test_export_has_exactly_one_row_per_window_even_with_multiple_status_rows(tmp_path: Path):
+async def test_export_has_exactly_one_row_per_window_even_with_multiple_status_rows(db: Database):
     """The core regression guard: device_status rows inserted once per
     window (dense, ~1 Hz) must not multiply the exported ecg_windows rows.
     The original range-based JOIN (`ABS(diff) < 5.0`) turned 4 windows into
     16 export rows because every window matched several nearby status rows."""
-    db = Database(tmp_path / "test.db")
-    await db.connect()
     session_id = await db.start_session("test-device")
 
     n_windows = 6
@@ -40,9 +51,7 @@ async def test_export_has_exactly_one_row_per_window_even_with_multiple_status_r
 
 
 @pytest.mark.asyncio
-async def test_export_attaches_nearest_alert_and_foot_check_within_window(tmp_path: Path):
-    db = Database(tmp_path / "test.db")
-    await db.connect()
+async def test_export_attaches_nearest_alert_and_foot_check_within_window(db: Database):
     session_id = await db.start_session("test-device")
 
     await db.insert_ecg_window(session_id, 1000.0, sqi=1, risk_score=0.9, mode="Verify")
@@ -68,9 +77,7 @@ async def test_export_attaches_nearest_alert_and_foot_check_within_window(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_export_empty_session_returns_no_rows(tmp_path: Path):
-    db = Database(tmp_path / "test.db")
-    await db.connect()
+async def test_export_empty_session_returns_no_rows(db: Database):
     session_id = await db.start_session("test-device")
     rows = await db.export_rows(session_id)
     assert rows == []
