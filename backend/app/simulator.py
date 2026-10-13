@@ -45,6 +45,7 @@ class Simulator:
         self._running = False
         self._spike_until: float = 0.0
         self._t = 0.0  # running phase accumulator for the synthetic waveform
+        self._sample_index = 0  # continuous across windows, so the beat clock never restarts
 
     def start(self) -> None:
         self._running = True
@@ -87,8 +88,13 @@ class Simulator:
         base = 0.15 * np.sin(2 * np.pi * heart_rate_hz * t)
         qrs = np.zeros(n)
         beat_period = self.sample_rate_hz / heart_rate_hz
+        # The phase must come from the global sample index: computing it from
+        # `i` restarted the rhythm every window, inserting an extra beat at
+        # each boundary (72 bpm intended, a refractory-filtered 60 bpm and a
+        # visibly doubled beat once per second in practice). Found by
+        # tests/test_heart_rate.py.
         for i in range(n):
-            phase = i % beat_period
+            phase = (self._sample_index + i) % beat_period
             if phase < 3:
                 qrs[i] = 1.0 * np.exp(-((phase - 1) ** 2) / 0.5)
 
@@ -98,6 +104,7 @@ class Simulator:
         samples = (waveform * 1000).astype(np.int16).tolist()  # scale to int16 range, mirrors ADC counts
 
         self._t += n / self.sample_rate_hz
+        self._sample_index += n
 
         # Occasional SQI dropout to exercise the reject path (~3% of windows),
         # simulating motion artifact per SRD 3.1's MPU6050-based gating.
