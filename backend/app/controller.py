@@ -86,7 +86,9 @@ class Controller:
         else:
             logger.info("controller: manual override cleared, resuming automatic mode selection")
 
-    def evaluate(self, score: float, battery_pct: int, sqi: int, timestamp: Optional[float] = None) -> ControllerDecision:
+    def evaluate(
+        self, score: float, battery_pct: Optional[int], sqi: int, timestamp: Optional[float] = None
+    ) -> ControllerDecision:
         ts = timestamp if timestamp is not None else time.time()
         s = self.state
         s.recent_scores.append(score)
@@ -156,6 +158,8 @@ class Controller:
         # battery_pct is passed into evaluate() and stashed there so
         # _select_mode (called from within the same evaluate() invocation)
         # can read it without threading it through every helper's signature.
+        # None = source can't measure battery (USB serial); treated as
+        # sufficient, so it never forces Eco (docs/API_CONTRACT.md section 2.3).
         return self._last_battery_pct is not None and self._last_battery_pct < settings.battery_eco_pct
 
     def _is_trending_up(self) -> bool:
@@ -210,9 +214,13 @@ def schedule_next_foot_check(
     )
 
 
-def should_fire_foot_check(*, scheduled_time: Optional[float], battery_pct: int, now: Optional[float] = None) -> bool:
+def should_fire_foot_check(
+    *, scheduled_time: Optional[float], battery_pct: Optional[int], now: Optional[float] = None
+) -> bool:
     """SRD 4.4: 'if scheduled_time_reached and battery_sufficient: wake_auxiliary_node()'."""
     now = now if now is not None else time.time()
     if scheduled_time is None:
         return False
-    return now >= scheduled_time and battery_pct >= settings.battery_aux_min
+    # None = unmeasured (bus-powered); treated as sufficient, per API_CONTRACT 2.3.
+    battery_ok = battery_pct is None or battery_pct >= settings.battery_aux_min
+    return now >= scheduled_time and battery_ok

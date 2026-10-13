@@ -127,8 +127,9 @@ async def post_foot_request(request: Request) -> FootRequestResponse:
     if state.foot_check_busy:
         raise HTTPException(status_code=409, detail="auxiliary node busy")
 
-    battery_pct = state.last_window.battery_pct if state.last_window else 100
-    if battery_pct < settings.battery_aux_min:
+    # None = unmeasured (USB bus-powered); treated as sufficient, per API_CONTRACT 2.3.
+    battery_pct = state.last_window.battery_pct if state.last_window else None
+    if battery_pct is not None and battery_pct < settings.battery_aux_min:
         raise HTTPException(status_code=503, detail="battery insufficient for auxiliary wake")
 
     state.foot_check_busy = True

@@ -20,10 +20,22 @@ class Settings(BaseSettings):
 
     # --- Data source -------------------------------------------------------
     # simulator: synthetic data only, no hardware needed.
+    # serial: real ESP32 over its USB cable (docs/API_CONTRACT.md section 2.4).
     # ble: real ESP32 hardware only, no fallback.
     # auto: try BLE, fall back to simulator after GS_BLE_SCAN_TIMEOUT_S.
     gs_source: str = "simulator"
     gs_ble_scan_timeout_s: float = 8.0
+
+    # --- USB serial source (GS_SOURCE=serial) --------------------------------
+    gs_serial_port: str = ""           # empty auto-detects /dev/ttyACM* then /dev/ttyUSB*
+    gs_serial_baud: int = 921600       # must match the firmware's Serial.begin()
+    serial_device_rate_hz: int = 250   # firmware's ECG sample rate
+    serial_mv_per_lsb: float = 0.125   # ADS1115 at +-4.096 V; converts mV back to ADC counts
+    serial_reconnect_s: float = 2.0    # wait between attempts when the port is missing
+    # Std-dev of |acceleration| over one window above which the window is
+    # rejected as motion artifact (SRD 3.1). Provisional: sitting still measures
+    # ~0.05 m/s^2, deliberate arm movement several m/s^2.
+    serial_motion_sqi_threshold_ms2: float = 1.0
 
     # --- Persistence ---------------------------------------------------------
     gs_db_path: str = "./data/glucosentry.db"
@@ -50,6 +62,10 @@ class Settings(BaseSettings):
     # --- BLE GATT UUIDs (placeholders until firmware bring-up fixes them) ---
     # See docs/API_CONTRACT.md section 2. Firmware changes these constants only;
     # no other file should hard-code a UUID.
+    # Silence on an open BLE link longer than this is treated as a lost link
+    # (firmware notifies once a second).
+    ble_stall_timeout_s: float = 5.0
+
     ble_primary_service_uuid: str = "0000a000-0000-1000-8000-00805f9b34fb"
     ble_char_ecg_data: str = "0000a001-0000-1000-8000-00805f9b34fb"
     ble_char_sqi_flag: str = "0000a002-0000-1000-8000-00805f9b34fb"
@@ -95,6 +111,17 @@ class Settings(BaseSettings):
     # be recalibrated once real ADS1115 counts are available (see
     # UPDATES.md open question 3, alongside the ONNX input shape).
     ecg_normalize_scale: float = 1000.0
+
+    # --- Heart rate (display only; app/heart_rate.py) -----------------------
+    hr_window_s: float = 8.0         # seconds of consecutive accepted ECG per estimate
+    hr_baseline_s: float = 0.2       # moving-average baseline removal width
+    hr_peak_fraction: float = 0.6    # R-peak threshold, fraction of the window's max
+    # R-peaks must stand this far above the signal's median absolute deviation.
+    # Gaussian noise alone reaches ~5x over a few seconds; real ECG R-waves sit
+    # well above 10x because most of a beat is near baseline.
+    hr_min_peak_to_mad: float = 8.0
+    hr_min_bpm: float = 30.0         # outside this range the estimate is reported as null
+    hr_max_bpm: float = 220.0        # also sets the refractory period between peaks
 
     # --- WebSocket -----------------------------------------------------------
     status_push_min_interval_s: float = 1.0  # throttle unchanged-status frames

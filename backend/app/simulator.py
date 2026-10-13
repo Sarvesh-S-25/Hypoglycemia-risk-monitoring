@@ -109,6 +109,9 @@ class Simulator:
         # Occasional SQI dropout to exercise the reject path (~3% of windows),
         # simulating motion artifact per SRD 3.1's MPU6050-based gating.
         sqi = 0 if self._rng.random() < 0.03 else 1
+        # Motion consistent with that: a still wearer, except in the artifact
+        # windows, so the dashboard's activity readout has something to show.
+        motion_ms2 = float(self._rng.uniform(2.0, 4.0) if sqi == 0 else self._rng.uniform(0.02, 0.08))
 
         return EcgWindow(
             device_id=self.device_id,
@@ -117,6 +120,7 @@ class Simulator:
             sqi=sqi,
             samples=samples,
             battery_pct=self.battery_pct,
+            motion_ms2=round(motion_ms2, 3),
         )
 
     async def run(self, on_window) -> None:

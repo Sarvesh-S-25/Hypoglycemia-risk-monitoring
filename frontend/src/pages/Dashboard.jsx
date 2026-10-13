@@ -4,6 +4,8 @@ import RiskTrend from '../components/RiskTrend.jsx'
 import ModeIndicator from '../components/ModeIndicator.jsx'
 import DeviceStatus from '../components/DeviceStatus.jsx'
 import AlertBanner from '../components/AlertBanner.jsx'
+import HeartRate from '../components/HeartRate.jsx'
+import Activity from '../components/Activity.jsx'
 import { useLiveState } from '../hooks/useLiveState.js'
 import { useApi } from '../hooks/useApi.js'
 import { formatRiskScore } from '../lib/format.js'
@@ -75,11 +77,17 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        <div className="gs-span-8">
-          <Card tone="grey">
-            <Panel>
-              <RiskTrend liveRisk={risk} />
-            </Panel>
+        <div className="gs-span-4">
+          <Card tone="plain">
+            <h3 className="gs-card-title">Heart rate</h3>
+            <HeartRate status={status} />
+          </Card>
+        </div>
+
+        <div className="gs-span-4">
+          <Card tone="plain">
+            <h3 className="gs-card-title">Activity</h3>
+            <Activity status={status} />
           </Card>
         </div>
 
@@ -87,6 +95,14 @@ export default function Dashboard() {
           <Card tone="plain">
             <h3 className="gs-card-title">Device status</h3>
             <DeviceStatus status={status} />
+          </Card>
+        </div>
+
+        <div className="gs-span-12">
+          <Card tone="grey">
+            <Panel>
+              <RiskTrend liveRisk={risk} />
+            </Panel>
           </Card>
         </div>
       </div>

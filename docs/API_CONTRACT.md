@@ -34,10 +34,35 @@ them from `backend/app/config.py` so firmware can fix them without a code change
 |---|---|---|---|
 | `ecg_data` | notify | packed `int16` little-endian array, preceded by a `double` window-start timestamp | one filtered, decimated ECG window |
 | `sqi_flag` | notify | `uint8` (0 reject, 1 accept) | per-window signal quality |
-| `device_status` | notify | `{battery: uint8, mode: uint8, leads_off: bool}` packed | periodic health report |
+| `device_status` | notify | `{battery: uint8, mode: uint8, leads_off: uint8, motion: uint16}` packed, little-endian, 5 bytes | per-window health report |
 | `controller_cmd` | write | `uint8` 0=Eco 1=Normal 2=Watch 3=Verify | mode command |
 | `alert_cmd` | write | `uint8` | trigger the vibration motor |
 | `aux_wake_cmd` | write | `uint8` | forward a wake signal to the auxiliary node |
+
+Wire details, fixed at firmware bring-up (2026-10-13):
+
+- **Advertising.** Device name `GlucoSentry-ECG`, primary service UUID in the
+  advertisement so the gateway can filter a scan by service.
+- **MTU.** One `ecg_data` notification is a whole window: 8 + 2 × 100 = 208 bytes,
+  so the link needs an ATT MTU of at least 211. The firmware requests 247; BlueZ
+  negotiates it automatically.
+- **Order per window**, once a second: `sqi_flag`, then `ecg_data`, then
+  `device_status`. The gateway pairs each `ecg_data` with the most recent
+  `sqi_flag` and `device_status`.
+- **Timestamp.** The ESP32 has no wall clock, so the `double` is device uptime in
+  seconds. The gateway stamps windows with host arrival time minus the window
+  length (same as the serial source) and uses the device value only to detect
+  dropped windows.
+- **`battery`** is 0–100, or **255 = not measured** (bus-powered bench build),
+  which the gateway maps to `battery_pct: null` (section 2.3).
+- **`mode`** echoes the last `controller_cmd` received, so the backend can see that
+  a command landed.
+- **`motion`** is the window's acceleration-magnitude std-dev in units of
+  0.01 m/s² (section 2.3's `motion_ms2` × 100).
+- **`alert_cmd`** blinks the on-board LED (GPIO2) for 3 s on the bench build,
+  standing in for the vibration motor.
+- The on-device SQI uses the same rule as the serial source: reject on any
+  leads-off sample or motion above 1.0 m/s².
 
 ### 2.2 Auxiliary node service
 
@@ -58,9 +83,45 @@ produces, so nothing downstream can tell live hardware from simulation:
   "sample_rate_hz": 100,
   "sqi": 1,
   "samples": [12, -4, 33, "... int16"],
-  "battery_pct": 78
+  "battery_pct": 78,
+  "leads_off": false,
+  "motion_ms2": 0.04
 }
 ```
+
+`battery_pct` is `null` when the source cannot measure it (the USB serial source:
+the board is bus-powered and has no battery gauge). A null battery is treated as
+sufficient: it never forces Eco mode and never blocks an auxiliary wake.
+`leads_off` is `true` if the AD8232 reported lead-off at any point in the window;
+such a window always has `sqi: 0`. `motion_ms2` is the standard deviation of the
+acceleration magnitude over the window (m/s²), or `null` if the source has no
+accelerometer; the simulator synthesizes it, high in its motion-artifact windows.
+
+### 2.4 USB serial transport (interim, `GS_SOURCE=serial`)
+
+Lets the real ESP32 drive the dashboard over its USB cable before the BLE firmware
+exists. The firmware streams one ASCII line per ECG sample at **250 Hz**, 921600 baud:
+
+```
+ecg_mV,leads_off,ax,ay,az
+1652.4,0,1.02,0.41,9.73
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `ecg_mV` | float | ADS1115 AIN0 in millivolts (0.125 mV/LSB at ±4.096 V); `0.0` while leads are off |
+| `leads_off` | `0`/`1` | AD8232 LO+ or LO− asserted |
+| `ax, ay, az` | float | MPU6050/6500 acceleration, m/s² (refreshed at 25 Hz, repeated between reads) |
+
+Lines that do not parse as exactly five numbers (boot messages, partial lines) are
+ignored. `serial_gateway` groups 250 consecutive samples into one window, converts
+millivolts back to int16 ADC counts, decimates 250 → 100 Hz, and sets `sqi: 0` if
+leads were off or the acceleration magnitude's standard deviation over the window
+exceeds `serial_motion_sqi_threshold_ms2` (SRD 3.1's MPU-based motion gating). The
+result is the normalized window in 2.3, so nothing downstream can tell serial from
+BLE or the simulator. The port is auto-detected (`/dev/ttyACM*`, `/dev/ttyUSB*`)
+unless `GS_SERIAL_PORT` is set; if it disappears, the source reports
+`connected: false` and keeps retrying.
 
 ## 3. REST API
 
@@ -83,11 +144,24 @@ the dashboard can render an honest empty state.
   "last_packet_ts": 1732000000.0,
   "aux_connected": false,
   "session_id": 4,
-  "model": "Stub (heuristic)"
+  "model": "Stub (heuristic)",
+  "heart_rate_bpm": 72.4,
+  "motion_ms2": 0.04,
+  "moving": false
 }
 ```
 
-`source` is `"ble" | "simulator" | "none"` so the UI can label a demo honestly.
+`heart_rate_bpm` is estimated by the backend (`app/heart_rate.py`) from R-peaks in
+the last `hr_window_s` seconds of consecutive accepted windows; it is `null` until
+that much clean signal exists, and resets to `null` on any rejected window rather
+than reporting a stale rate. `motion_ms2` is the latest window's value (see 2.3) and
+`moving` is the backend's verdict on it against `serial_motion_sqi_threshold_ms2`,
+`null` when `motion_ms2` is. The UI displays these; it does not threshold them.
+
+`source` is `"ble" | "serial" | "simulator" | "none"` so the UI can label a demo
+honestly. `battery_pct` is `null` when the source cannot measure it (see 2.3).
+`leads_off` is the real AD8232 state for `serial` (and `ble` once implemented);
+the simulator always reports `false`.
 
 `model` is a human-readable label for whichever `RiskModel` is actually scoring
 data right now (`app/inference.py`): `"Stub (heuristic)"` until a trained model
@@ -282,7 +356,7 @@ The dashboard subscribes once on mount. Every frame is a JSON object with `type`
 
 { "type": "ecg_window", "data": {
     "window_start_ts": 1732000000.0, "sample_rate_hz": 100,
-    "sqi": 1, "samples": [/* int16 */] } }
+    "sqi": 1, "leads_off": false, "samples": [/* int16 */] } }
 
 { "type": "risk_update", "data": {
     "score": 0.34, "mode": "Normal", "timestamp": 1732000000.0 } }

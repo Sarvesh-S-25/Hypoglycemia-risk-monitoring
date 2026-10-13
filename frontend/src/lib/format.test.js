@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   formatRiskScore, formatTemperature, formatBattery, formatCountdown,
-  formatDuration, formatDeltaT, formatRelativeTime,
+  formatDuration, formatDeltaT, formatRelativeTime, formatHeartRate, formatMotion,
 } from './format.js'
 
 describe('formatRiskScore', () => {
@@ -79,5 +79,25 @@ describe('formatRelativeTime', () => {
     expect(formatRelativeTime(now / 1000 - 120, now)).toBe('2m ago')
     expect(formatRelativeTime(now / 1000 - 7200, now)).toBe('2h ago')
     expect(formatRelativeTime(now / 1000 - 172800, now)).toBe('2d ago')
+  })
+})
+
+describe('formatHeartRate', () => {
+  it('rounds to whole beats per minute', () => {
+    expect(formatHeartRate(72.4)).toBe('72')
+    expect(formatHeartRate(59.6)).toBe('60')
+  })
+  it('handles no estimate yet', () => {
+    expect(formatHeartRate(null)).toBe('--')
+    expect(formatHeartRate(undefined)).toBe('--')
+  })
+})
+
+describe('formatMotion', () => {
+  it('formats with two decimals and units', () => {
+    expect(formatMotion(0.0412)).toBe('0.04 m/s²')
+  })
+  it('handles a source without an accelerometer', () => {
+    expect(formatMotion(null)).toBe('--')
   })
 })

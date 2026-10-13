@@ -29,6 +29,8 @@ from app.db import Database
 from app.events import bus
 from app.inference import load_risk_model
 from app.models import EcgWindow
+from app.ble_gateway import BleGateway, find_device
+from app.serial_gateway import SerialGateway
 from app.signal_pipeline import SignalPipeline
 from app.simulator import Simulator
 from app.state import AppState
@@ -46,6 +48,7 @@ async def _handle_window(app: FastAPI, window: EcgWindow) -> None:
     state.device_connected = True
 
     arr = state.pipeline.ingest(window)
+    state.heart_rate.update(window)
     score: float | None = None
     mode = state.controller.state.mode
 
@@ -87,6 +90,7 @@ async def _handle_window(app: FastAPI, window: EcgWindow) -> None:
             "window_start_ts": window.window_start_ts,
             "sample_rate_hz": window.sample_rate_hz,
             "sqi": window.sqi,
+            "leads_off": window.leads_off,
             "samples": window.samples,
         },
     )
@@ -94,7 +98,7 @@ async def _handle_window(app: FastAPI, window: EcgWindow) -> None:
     # device_status row + throttled status frame (docs/API_CONTRACT.md section 4:
     # "at most once per second, and only when something actually changed").
     await state.db.insert_device_status(
-        state.session_id, window.window_start_ts, window.battery_pct, mode, leads_off=False
+        state.session_id, window.window_start_ts, window.battery_pct, mode, leads_off=window.leads_off
     )
     if state.status_changed():
         bus.publish("status", state.status_dict())
@@ -165,25 +169,42 @@ async def run_simulated_foot_check(app: FastAPI, request_id: str) -> None:
         state.foot_check_busy = False
 
 
+async def _set_link(app: FastAPI, connected: bool) -> None:
+    """A hardware source's port opened or dropped. The simulator never calls
+    this; it is "connected" from its first window onward."""
+    state: AppState = app.state.gs
+    state.device_connected = connected
+    if state.status_changed():
+        bus.publish("status", state.status_dict())
+
+
 async def _consume_source(app: FastAPI) -> None:
-    """Runs whichever data source is configured. Simulator today; Phase 7
-    adds a `ble_gateway` branch here behind the same `_handle_window` sink,
-    which is the entire point of docs/PLAN.md section 1 decision 1."""
+    """Runs whichever data source is configured: the simulator, or the real
+    ESP32 over USB serial. Phase 7 adds a `ble_gateway` branch here behind the
+    same `_handle_window` sink, which is the entire point of docs/PLAN.md
+    section 1 decision 1."""
     state: AppState = app.state.gs
 
     if settings.gs_source == "simulator":
         assert state.simulator is not None
         await state.simulator.run(lambda w: _handle_window(app, w))
-    elif settings.gs_source in ("ble", "auto"):
-        # Phase 7: real ble_gateway.py wiring goes here. Falling back to the
-        # simulator keeps the system demoable until firmware bring-up.
-        logger.warning(
-            "GS_SOURCE=%s requested but ble_gateway is not implemented yet (Phase 7); "
-            "falling back to the simulator", settings.gs_source
-        )
-        state.source = "simulator"
-        assert state.simulator is not None
-        await state.simulator.run(lambda w: _handle_window(app, w))
+    elif settings.gs_source == "serial":
+        await SerialGateway().run(lambda w: _handle_window(app, w), lambda c: _set_link(app, c))
+    elif settings.gs_source == "ble":
+        await BleGateway().run(lambda w: _handle_window(app, w), lambda c: _set_link(app, c))
+    elif settings.gs_source == "auto":
+        # One scan up front: a node in range wins, otherwise the simulator
+        # keeps the system demoable (docs/PLAN.md Phase 7).
+        device = await find_device(settings.gs_ble_scan_timeout_s)
+        if device is not None:
+            logger.info("GS_SOURCE=auto: found %s, using BLE", device.address)
+            state.source = "ble"
+            await BleGateway().run(lambda w: _handle_window(app, w), lambda c: _set_link(app, c), device=device)
+        else:
+            logger.info("GS_SOURCE=auto: no BLE node within %.0fs, using the simulator", settings.gs_ble_scan_timeout_s)
+            state.source = "simulator"
+            assert state.simulator is not None
+            await state.simulator.run(lambda w: _handle_window(app, w))
     else:
         logger.error("unknown GS_SOURCE=%s; no data source running", settings.gs_source)
 
@@ -209,7 +230,13 @@ async def lifespan(app: FastAPI):
         startup_model_path = settings.gs_model_path
     model = load_risk_model(startup_model_path)
     controller = Controller()
-    simulator = Simulator(device_id=device_id, sample_rate_hz=settings.ecg_sample_rate_hz) if settings.gs_source != "ble" else None
+    # No simulator object for the hardware-only sources, so /api/sim/* answers
+    # "no simulator active" instead of starting a simulator nothing consumes.
+    simulator = (
+        Simulator(device_id=device_id, sample_rate_hz=settings.ecg_sample_rate_hz)
+        if settings.gs_source not in ("ble", "serial")
+        else None
+    )
 
     state = AppState(
         db=db,

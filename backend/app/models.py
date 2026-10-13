@@ -12,7 +12,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 Mode = Literal["Eco", "Normal", "Watch", "Verify"]
-Source = Literal["ble", "simulator", "none"]
+Source = Literal["ble", "serial", "simulator", "none"]
 VALID_MODES = ("Eco", "Normal", "Watch", "Verify")
 
 
@@ -27,7 +27,14 @@ class EcgWindow(BaseModel):
     sample_rate_hz: int
     sqi: int  # 0 = reject, 1 = accept
     samples: list[int]
-    battery_pct: int
+    # None when the source can't measure it (USB serial: bus-powered, no gauge).
+    # Treated as sufficient everywhere, so an unknown battery never forces Eco
+    # or blocks an auxiliary wake (docs/API_CONTRACT.md section 2.3).
+    battery_pct: Optional[int]
+    leads_off: bool = False
+    # Std-dev of |acceleration| over the window, m/s^2; None without an
+    # accelerometer (docs/API_CONTRACT.md section 2.3).
+    motion_ms2: Optional[float] = None
 
 
 # --- REST response models (API_CONTRACT section 3) --------------------------
@@ -47,6 +54,9 @@ class StatusResponse(BaseModel):
     # right now -- "Stub (heuristic)" until a trained model is configured via
     # GS_MODEL_PATH, or "ONNX: <filename>" once one is. See app/inference.py.
     model: str = "Stub (heuristic)"
+    heart_rate_bpm: Optional[float] = None
+    motion_ms2: Optional[float] = None
+    moving: Optional[bool] = None
 
 
 class RiskCurrentResponse(BaseModel):

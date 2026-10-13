@@ -57,7 +57,8 @@ full API, and `backend/.env.example` for the equivalent config-file approach.
 `backend/.env`:
 
 ```
-GS_SOURCE=simulator        # simulator | ble | auto
+GS_SOURCE=simulator        # simulator | serial | ble | auto
+GS_SERIAL_PORT=            # serial only; empty auto-detects /dev/ttyACM*, /dev/ttyUSB*
 GS_DB_PATH=./data/glucosentry.db
 GS_ENABLE_SIM=1            # exposes POST /api/sim/* for demo/induced-signal testing
 GS_MODEL_PATH=             # empty uses the stub model; set to an .onnx file to serve the real one

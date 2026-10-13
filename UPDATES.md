@@ -11,7 +11,7 @@ actually true in the code.
 | | |
 |---|---|
 | **Phase** | 6 — Foot-check and session views (starting) |
-| **Last updated** | 2026-09-20 |
+| **Last updated** | 2026-10-13 |
 | **Next action** | Phase 6: lime FootCheckPanel (countdown, history, manual trigger), SessionSummary (mode-time breakdown, CSV export button), assembled as additional Dashboard sections per DESIGN_SYSTEM section 6 layout |
 | **Blocked on** | Nothing |
 | **Runnable end to end?** | Yes, verified live in an actual connected browser (Claude-in-Chrome), not just via curl: navigated the real dashboard, scrolled through every panel, clicked through to the Model page and back, uploaded a real ONNX file through the actual file input, and confirmed zero console errors throughout. The main dashboard (ECG waveform, risk trend, mode indicator, device status, alert banner) and a new Model management page (upload/select/reset a trained `.onnx` risk model, applied to live data immediately) are both built, tested, and verified working end to end. Foot-check panel and session summary views do not exist yet. `/kit` (the Phase 4 style-guide gallery) was removed entirely at the user's request -- the design tokens it was built to check now only need to look right in the real dashboard, which has been visually confirmed. |
@@ -46,6 +46,10 @@ Phase definitions and their "Done when" criteria are in `docs/PLAN.md` section 3
       countdown and manual trigger, history table, session summary, CSV export.
 - [ ] **Phase 7 — Hardware connection.** `ble_gateway` against real ESP32 hardware,
       `GS_SOURCE=ble|simulator|auto`.
+      *Partial (2026-10-13):* `GS_SOURCE=ble` works against the real ESP32 (status
+      `source: "ble"`, live windows, mode commands acknowledged by the device), plus an
+      interim `GS_SOURCE=serial`. Unticked until an accepted-window ECG and the alert
+      LED path are verified on hardware -- see log.
 - [ ] **Phase 8 — Hardening and acceptance.** SRD section 8 walked item by item with
       measured numbers recorded below.
 
@@ -92,6 +96,7 @@ Append here when something is decided, so a later session does not reopen it.
 | 2026-09-20 | Added a `sessions` table and `GET /api/session/summary` | The SRD's own Session view needs duration and a mode-time breakdown, which the specified schema cannot answer |
 | 2026-09-20 | Raw ECG samples are not persisted; recent windows live in an in-memory ring buffer | Roughly 70 MB/day for no stated requirement. Add an opt-in NDJSON sink if the evaluation needs raw capture |
 | 2026-09-20 | Visual language taken from `ruul-a6e6a6.mp4`, tokenized in `docs/DESIGN_SYSTEM.md` | Colors were sampled from extracted video frames, so they are exact rather than eyeballed |
+| 2026-10-13 | Add an interim `GS_SOURCE=serial` source (ESP32 over USB) ahead of BLE; BLE (Phase 7 proper) follows as the next step | Hardware (ESP32 + ADS1115 + AD8232 + MPU6500) is on the bench and streaming over USB, while the BLE firmware doesn't exist yet. Serial gets real data onto the dashboard now through the same `_handle_window` sink, so nothing downstream changes when BLE replaces it. The firmware streams raw 250 Hz samples, so decimation to 100 Hz and MPU-based SQI gating run backend-side in `serial_gateway.py` for now (contract section 2.4). `battery_pct` became nullable rather than reporting a made-up 100% for a bus-powered board, and `leads_off` now carries the real AD8232 state |
 
 ## Open questions
 
@@ -114,6 +119,98 @@ Answer these as the information arrives; do not block on them.
    `eta_s: 6` in `POST /api/foot/request` is a placeholder.
 
 ## Log
+
+### 2026-10-13 — BLE gateway live on hardware; heart rate, activity and leads-off UI; two bugs fixed
+
+**BLE (Phase 7).** Firmware (outside this repo, `esp32-projects/glucosentry-firmware`)
+is a GATT server per contract 2.1, advertising as `GlucoSentry-ECG`; it decimates
+250 → 100 Hz and computes SQI on-device, and still streams the serial format so
+`GS_SOURCE=serial` keeps working with the same build. Contract 2.1 now fixes the
+details left open: MTU ≥ 211, per-window order `sqi_flag → ecg_data → device_status`,
+uptime timestamp re-stamped by the host, battery 255 = unmeasured, a `motion` field in
+`device_status` (now 5 bytes), `mode` echoed back. `app/ble_gateway.py` scans by
+service UUID, pairs packets into windows, reconnects forever, and writes
+`controller_cmd` on mode changes (from `risk_update` *and* `status` frames — the latter
+found necessary because with leads off no `risk_update` frames exist) and `alert_cmd`
+on alerts. `GS_SOURCE=auto` now really scans and falls back to the simulator.
+
+Measured on hardware, no electrodes attached:
+- Scan finds the node; `/api/status` → `source: "ble", connected: true`, real
+  leads-off and motion (0.02–0.03 m/s² on a desk); full 100-sample windows.
+- 60 windows in 60 s over a watched minute with no drops.
+- Backend restart (host-side drop) → device re-advertises → reconnected in ~2 s.
+- `POST /api/controller/mode {"mode":"Watch"}` → device echoed `Watch` in
+  `device_status`.
+- One unexplained link stall ~18 s into the very first connection (stall timeout was
+  3 s then, now `ble_stall_timeout_s = 5`). Not reproduced since; watch for it.
+- bleak on BlueZ reports `mtu_size = 23` as a placeholder even when a larger MTU is
+  negotiated — the gateway now checks real packet length instead of trusting it.
+
+Not verified on hardware: `alert_cmd` → LED blink (needs a real alert, i.e. accepted
+windows); unit-tested only.
+
+**UI.** Heart rate card (backend `heart_rate.py` R-peak estimate, null until 8 s of
+clean signal, resets on any rejected window), Activity card (backend `moving` verdict
+and `motion_ms2`), ECG panel shows an explicit "Leads off" state and drops the
+leads-off zeros so the scale recovers instantly on reattach, plus a "window rejected"
+label. Risk trend moved to a full-width row. Contract section 3/4 updated first.
+
+**Bugs fixed.**
+- `tests/test_db_export.py` never closed its DB → aiosqlite's non-daemon thread hung
+  every full `pytest` run after all tests passed. Now a closing fixture; full suite
+  exits in ~1 s.
+- `simulator.py` computed the QRS phase from the per-window index, restarting the
+  rhythm every second: a doubled beat at each window boundary and an effective 60 bpm
+  instead of the intended 72. Found by the new heart-rate tests; now uses a global
+  sample index.
+
+Tests: backend 70 passed (new: test_ble_gateway 15, test_heart_rate 5), frontend 40
+passed (new: LiveVitals.test.jsx 9, format 4). Frontend not seen in a browser this
+session (extension unavailable) — verified by tests and a production build only.
+
+### 2026-10-13 — Interim USB serial source: real ESP32 data on the dashboard (Phase 7 partial)
+
+Hardware on the bench: 30-pin ESP32 DevKit (ESP32-D0WD-V3), ADS1115 (0x48) reading
+the AD8232 output on A0, AD8232 LO+/LO− on GPIO32/33, and an MPU6050-branded board
+that is actually an **MPU6500** (`WHO_AM_I = 0x70` -- the Adafruit MPU6050 library
+rejects it, so the firmware reads registers directly). Firmware streams
+`ecg_mV,leads_off,ax,ay,az` at 250 Hz over USB at 921600 baud; it lives outside this
+repo, per AGENTS.md.
+
+Done:
+- Contract first: `docs/API_CONTRACT.md` section 2.3 (`leads_off` field, nullable
+  `battery_pct`), new section 2.4 (serial line format and processing), and the
+  `source` enum gained `"serial"`.
+- `app/serial_gateway.py`: parses lines, groups 250 samples per 1 s window, converts mV
+  back to ADS1115 counts, decimates 250 → 100 Hz (3-tap smoother + interpolation),
+  SQI 0 on leads-off or accel-magnitude std above `serial_motion_sqi_threshold_ms2`.
+  Auto-detects the port, reconnects forever, flips `connected` false on loss.
+- `main.py` wires it behind the same `_handle_window` sink; `leads_off` now flows to
+  `/api/status` and `device_status` rows instead of the hard-coded `False`. No
+  simulator object is created for `serial`, so `/api/sim/*` answers 400 honestly.
+- Null battery is treated as sufficient in the controller (never forces Eco), the
+  foot-check scheduler and `POST /api/foot/request`.
+- Frontend: `DeviceStatus` labels `serial` as "USB serial". No other UI change needed.
+
+Verified (measured, not assumed):
+- `tests/test_serial_gateway.py`: 10 passed. Every other test file passes unchanged
+  (controller 23, db_export 3, model_registry 11, phase1 4, phase2 2). Frontend vitest:
+  27 passed.
+- Live, with the board attached and no electrodes on: `/api/status` →
+  `source: "serial", connected: true, leads_off: true, battery_pct: null, sqi: 0`;
+  `/ws/live` delivers `hello`, `status` and 100-sample `ecg_window` frames at ~1/s
+  (9 windows in 9.3 s); `session/summary` counts them all as rejected, as it should.
+
+Not yet verified -- do not tick:
+- An accepted (sqi=1) window from real electrodes; none were available. The motion
+  threshold (1.0 m/s²) and `ecg_normalize_scale` are still provisional against real
+  ADS1115 counts (open question 3).
+- The dashboard in a browser on serial data (backend + WebSocket checked directly).
+
+Found, pre-existing, not fixed: `pytest` on `tests/test_db_export.py` passes its 3 tests
+but the process never exits (reproduced on the unmodified commit in a clean worktree),
+so a full `pytest` run hangs at the end. Likely an un-closed aiosqlite connection in
+that test file.
 
 ### 2026-09-20 — Live browser verification, /kit removed, Model management page added; two more real bugs found and fixed
 This entry covers a follow-up session using an actually-connected browser

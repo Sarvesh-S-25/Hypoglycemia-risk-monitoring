@@ -19,6 +19,17 @@ export function formatBattery(pct) {
   return `${Math.round(pct)}%`
 }
 
+export function formatHeartRate(bpm) {
+  if (bpm === null || bpm === undefined) return '--'
+  return `${Math.round(bpm)}`
+}
+
+/** Motion intensity: std-dev of acceleration magnitude, m/s^2. */
+export function formatMotion(ms2) {
+  if (ms2 === null || ms2 === undefined) return '--'
+  return `${ms2.toFixed(2)} m/s²`
+}
+
 export function formatClockTime(unixSeconds) {
   if (!unixSeconds) return '--'
   const d = new Date(unixSeconds * 1000)
