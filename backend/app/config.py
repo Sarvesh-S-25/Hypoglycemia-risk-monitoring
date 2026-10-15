@@ -55,6 +55,23 @@ class Settings(BaseSettings):
     gs_models_dir: str = "./models"
     gs_model_selection_path: str = "./data/model_selection.txt"
     gs_max_model_upload_mb: int = 200
+    # For an ONNX model with a fixed input length: how much ECG it scores at
+    # once and at what sample rate it was trained. The D1NAMO CNN+BiLSTM takes
+    # 30 s at 250 Hz (7500 samples); see OnnxRiskModel in app/inference.py.
+    model_window_s: float = 30.0
+    model_input_rate_hz: int = 250
+    # Apply the training notebook's 0.5-40 Hz band-pass + 50 Hz notch before
+    # scoring (app/ecg_filter.py). Needed because the bench firmware sends
+    # unfiltered ECG; turn off only if a node starts filtering on-device.
+    model_prefilter: bool = True
+
+    # --- Auxiliary (foot-check) node -----------------------------------------
+    # simulator: synthesized readings (no hardware). ble: the real foot module
+    # over BLE (docs/API_CONTRACT.md section 2.2), held connected by
+    # app/aux_gateway.py, independent of GS_SOURCE.
+    gs_aux_source: str = "simulator"
+    aux_result_timeout_s: float = 10.0  # wake written -> foot_temp_result must arrive within this
+    aux_eta_s: int = 1  # what POST /api/foot/request tells the UI to expect from the real node
 
     # --- CORS ------------------------------------------------------------------
     gs_cors_origin: str = "http://localhost:5173"
@@ -95,7 +112,7 @@ class Settings(BaseSettings):
     foot_check_elevated_interval_s: float = 8 * 3600.0
     foot_check_invalid_retry_s: float = 1 * 3600.0
     foot_check_elevated_threshold_c: float = 2.2  # IWGDF reference threshold, background not diagnostic
-    foot_check_eta_s: int = 6  # placeholder estimate for wake-to-result latency; unmeasured on real hw
+    foot_check_eta_s: int = 6  # simulated wake-to-result latency; the real node answers in well under 1 s
 
     # --- Sampling ------------------------------------------------------------
     ecg_sample_rate_hz: int = 100  # decimated rate per SRD 3.1; on-device rate is 250 Hz

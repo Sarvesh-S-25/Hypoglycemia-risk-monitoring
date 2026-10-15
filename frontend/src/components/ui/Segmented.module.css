@@ -1,0 +1,30 @@
+.wrap {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--gs-line);
+  border-radius: var(--gs-radius-pill);
+  background: var(--gs-surface-white);
+}
+
+.item {
+  border: none;
+  background: transparent;
+  color: var(--gs-ink-muted);
+  border-radius: var(--gs-radius-pill);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: var(--gs-font-sans);
+  cursor: pointer;
+  transition: background var(--gs-transition), color var(--gs-transition);
+}
+
+.item:hover {
+  color: var(--gs-ink);
+}
+
+.active,
+.active:hover {
+  background: var(--gs-surface-dark);
+  color: var(--gs-ink-invert);
+}

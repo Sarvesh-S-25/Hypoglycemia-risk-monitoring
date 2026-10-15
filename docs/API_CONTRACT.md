@@ -71,6 +71,21 @@ Wire details, fixed at firmware bring-up (2026-10-13):
 | `wake` | write | `uint8` | wake trigger |
 | `foot_temp_result` | notify | `{t_left: float, t_right: float, delta: float, valid: bool}` | bilateral reading |
 
+Notes for implementers:
+
+- **`foot_temp_result`** is 13 bytes, little-endian: `float32 t_left`, `float32
+  t_right`, `float32 delta` (all °C, `delta = t_left - t_right`), then `uint8 valid`.
+  An invalid reading (a temperature outside 10–45 °C, or two reads 100 ms apart
+  disagreeing by 0.5 °C or more) carries `valid = 0` and zeros for the temperatures.
+  The backend stores `|delta|` as `delta_t`.
+- The backend (`app/aux_gateway.py`, `GS_AUX_SOURCE=ble`) connects to the node
+  directly and keeps the link up, independent of the primary node; `aux_wake_cmd`
+  on the primary is not used on the bench build. A wake with no result within
+  `aux_result_timeout_s` is recorded as an invalid check, so the scheduler retries.
+- The bench node idles with its thermistor dividers unpowered and the radio
+  advertising rather than in deep sleep, because an ESP32 in deep sleep cannot
+  receive a BLE write.
+
 ### 2.3 Normalized ECG window (internal, after parsing)
 
 This is what `ble_gateway` hands to `signal_pipeline`, and exactly what the simulator
@@ -143,11 +158,13 @@ the dashboard can render an honest empty state.
   "sqi": 1,
   "last_packet_ts": 1732000000.0,
   "aux_connected": false,
+  "aux_source": "simulator",
   "session_id": 4,
   "model": "Stub (heuristic)",
   "heart_rate_bpm": 72.4,
   "motion_ms2": 0.04,
-  "moving": false
+  "moving": false,
+  "risk_ready_in_s": 0
 }
 ```
 
@@ -157,6 +174,10 @@ that much clean signal exists, and resets to `null` on any rejected window rathe
 than reporting a stale rate. `motion_ms2` is the latest window's value (see 2.3) and
 `moving` is the backend's verdict on it against `serial_motion_sqi_threshold_ms2`,
 `null` when `motion_ms2` is. The UI displays these; it does not threshold them.
+`risk_ready_in_s` is how many more seconds of clean signal the model needs before it
+can score: `0` while scoring, `null` when there is no clean signal to buffer.
+`aux_source` is `"ble"` when foot checks go to the real node (then `aux_connected`
+is its live link state) or `"simulator"` when they are synthesized.
 
 `source` is `"ble" | "serial" | "simulator" | "none"` so the UI can label a demo
 honestly. `battery_pct` is `null` when the source cannot measure it (see 2.3).
@@ -176,6 +197,44 @@ the UI, not just in a server log nobody may be watching.
 ```json
 { "score": 0.34, "mode": "Normal", "timestamp": 1732000000.0, "alerting": false }
 ```
+
+`score` and `timestamp` are `null` until a window has actually been scored (no clean
+signal yet, or a fixed-length model still filling its buffer). The backend never
+reports a placeholder `0.0`, because a real score of 0.0 means "no risk".
+
+### `GET /api/diagnostics`
+
+The backend's working state for the dashboard's engineering view. It's read-only and
+comes from the same objects that make the decisions, so it is never a second decision
+path. The frontend polls it about once a second while that view is open.
+
+```json
+{
+  "timestamp": 1732000000.0,
+  "link": { "source": "ble", "connected": true, "last_packet_ts": 1732000000.0,
+            "battery_pct": null, "aux_source": "ble", "aux_connected": true },
+  "pipeline": { "sample_rate_hz": 100, "windows_total": 120, "windows_accepted": 96,
+                "rejected_leads_off": 20, "rejected_motion": 4, "sqi": 1,
+                "leads_off": false, "motion_ms2": 0.04, "motion_threshold_ms2": 1.0,
+                "last_window": { "n_samples": 100, "min": -812, "max": 2210, "ptp": 3022, "mean": 4.1 },
+                "heart_rate_bpm": 72.4 },
+  "model": { "name": "ONNX: glucosentry_cnn_bilstm.onnx", "needed_s": 30.0, "buffered_s": 30.0,
+             "input_len": 7500, "input_rate_hz": 250, "output": "logit -> sigmoid",
+             "last_score": 0.41, "last_score_ts": 1732000000.0, "last_inference_ms": 3.8 },
+  "controller": { "mode": "Normal", "manual_mode": null, "risk_low": 0.3, "risk_elevated": 0.55,
+                  "risk_alert": 0.75, "verify_confirm_count": 0, "confirm_windows": 3,
+                  "alert_cooldown_s": 300.0, "cooldown_remaining_s": null,
+                  "recent_scores": [0.39, 0.41], "alerting": false },
+  "foot": { "source": "ble", "connected": true, "busy": false, "next_check_scheduled": 1732086400.0,
+            "elevated_threshold_c": 2.2, "normal_interval_s": 86400.0, "elevated_interval_s": 28800.0,
+            "invalid_retry_s": 3600.0, "battery_min_pct": 15, "result_timeout_s": 10.0,
+            "last_check": { "/* same shape as the foot_check_result frame */": null } }
+}
+```
+
+Rejected windows count toward `rejected_leads_off` when the AD8232 reported leads-off
+in them, and toward `rejected_motion` otherwise (an `sqi = 0` window with the leads
+on). `needed_s` is 0 for a model that scores each window on its own.
 
 ### `GET /api/risk/history?range=1h`
 
@@ -218,6 +277,7 @@ when nothing has arrived yet.
       "t_right": 32.3,
       "delta_t": 1.1,
       "valid": true,
+      "elevated": false,
       "next_check_scheduled": 1732086400.0,
       "action": "scheduled_24h"
     }
@@ -225,6 +285,11 @@ when nothing has arrived yet.
   "next_check_scheduled": 1732086400.0
 }
 ```
+
+Most recent first. `elevated` is the backend's verdict on `delta_t` against
+`foot_check_elevated_threshold_c` (2.2 °C, the IWGDF reference, cited as background
+and not as a diagnostic claim), and `null` for an invalid check. The UI shows it and
+never compares `delta_t` itself.
 
 ### `POST /api/foot/request`
 
@@ -237,7 +302,10 @@ the wake-to-result cycle takes seconds.
 ```
 
 Returns **409** with `{"detail": "auxiliary node busy"}` if a check is already in
-flight, and **503** if the battery is below the configured floor.
+flight, and **503** if the battery is below the configured floor or, with
+`GS_AUX_SOURCE=ble`, with `{"detail": "foot module not connected"}` when the node is
+out of range. `eta_s` is the simulated delay, or `aux_eta_s` (about 1 s) for the real
+node.
 
 ### `POST /api/controller/mode`
 
@@ -345,6 +413,39 @@ Response: `{ "id": 9, "acknowledged": true }`
 the mode escalation and the sustained-risk alert path can be demonstrated without
 inducing real hypoglycemia (SRD section 8). Disabled when `GS_ENABLE_SIM=0`.
 
+### Simulator controls  *(development only, all 404 when `GS_ENABLE_SIM=0`)*
+
+`GET /api/sim/state`, and every `POST` below, return:
+
+```json
+{
+  "ecg": { "running": true, "scenario": "hypo", "scenario_remaining_s": 92.0,
+           "hypo_progress": 0.6, "heart_rate_bpm": 87.0, "base_heart_rate_bpm": 72.0,
+           "battery_pct": 97, "random_artifacts": true },
+  "foot": { "mode": "random", "connected": true },
+  "scenarios": ["normal", "motion", "leads_off", "hypo", "spike"],
+  "foot_modes": ["random", "normal", "elevated", "invalid", "offline"]
+}
+```
+
+`ecg` is `null` unless `GS_SOURCE=simulator`, and `foot` is `null` unless
+`GS_AUX_SOURCE=simulator`. The same object appears as `simulator` in
+`GET /api/diagnostics`, with an added `enabled` flag.
+
+- `POST /api/sim/scenario` `{ "name": "motion", "duration_s": 15 }`. `duration_s` is
+  optional (defaults: motion 15, leads_off 15, hypo 180, spike 20; `normal` has no
+  end). The scenario reverts to `normal` when it expires. 400 on an unknown name.
+- `POST /api/sim/settings` `{ "heart_rate_bpm": 95, "battery_pct": 20, "random_artifacts": false }`.
+  All fields are optional (heart rate 30–200, battery 0–100).
+- `POST /api/sim/foot` `{ "mode": "elevated" }`. Forces what the next simulated foot
+  checks return. `offline` sets `aux_connected: false`, so `POST /api/foot/request`
+  returns 503 exactly as it does for an out-of-range real module. 400 on an unknown
+  mode.
+
+The `hypo` scenario is a **test pattern** (tachycardia, QT prolongation, T-wave
+flattening and mild ST depression, ramped in over two thirds of its duration), not
+validated physiology.
+
 ## 4. WebSocket `/ws/live`
 
 The dashboard subscribes once on mount. Every frame is a JSON object with `type` and
@@ -367,8 +468,8 @@ The dashboard subscribes once on mount. Every frame is a JSON object with `type`
 
 { "type": "foot_check_result", "data": {
     "id": 12, "t_left": 31.2, "t_right": 32.3, "delta_t": 1.1,
-    "valid": true, "timestamp": 1732000000.0,
-    "next_check_scheduled": 1732086400.0 } }
+    "valid": true, "elevated": false, "timestamp": 1732000000.0,
+    "next_check_scheduled": 1732086400.0, "action": "scheduled_24h" } }
 
 { "type": "status", "data": { /* same shape as GET /api/status */ } }
 ```

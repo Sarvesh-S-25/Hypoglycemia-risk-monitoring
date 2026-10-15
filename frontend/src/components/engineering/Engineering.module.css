@@ -1,0 +1,195 @@
+/* Shared by the engineering-view panels. */
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.tags {
+  display: inline-flex;
+  gap: 6px;
+  vertical-align: middle;
+}
+
+.tag {
+  font-family: var(--gs-font-mono);
+  font-size: 11px;
+  color: var(--gs-ink-muted);
+  border: 1px solid var(--gs-line);
+  border-radius: var(--gs-radius-pill);
+  padding: 2px 8px;
+  text-decoration: none;
+  transition: border-color var(--gs-transition), color var(--gs-transition);
+}
+
+.tag:hover {
+  color: var(--gs-ink);
+  border-color: var(--gs-ink-muted);
+}
+
+.lede {
+  font-size: 13px;
+  color: var(--gs-ink-muted);
+  margin: 0 0 16px;
+}
+
+.block {
+  margin-top: 16px;
+}
+
+.blockLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--gs-ink-muted);
+  margin-bottom: 6px;
+}
+
+.mono {
+  font-family: var(--gs-font-mono);
+}
+
+/* Stacked accepted / leads-off / motion bar */
+.stack {
+  display: flex;
+  height: 8px;
+  border-radius: var(--gs-radius-pill);
+  overflow: hidden;
+  background: var(--gs-surface-grey);
+}
+
+.legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--gs-ink-muted);
+}
+
+.swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 6px;
+}
+
+.ok { background: var(--gs-ok); }
+.warn { background: var(--gs-warn); }
+.danger { background: var(--gs-danger); }
+.faint { background: var(--gs-ink-faint); }
+
+/* Controller score scale, zones in the four mode colors */
+.scale {
+  position: relative;
+  display: flex;
+  height: 28px;
+  border-radius: var(--gs-radius-field);
+  overflow: hidden;
+}
+
+.zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gs-ink-invert);
+  opacity: 0.55;
+}
+
+.zoneActive {
+  opacity: 1;
+}
+
+.scoreMarker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--gs-ink);
+  border-radius: 2px;
+}
+
+.ticks {
+  position: relative;
+  height: 18px;
+  margin-top: 4px;
+  font-family: var(--gs-font-mono);
+  font-size: 11px;
+  color: var(--gs-ink-muted);
+}
+
+.tick {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.dots {
+  display: flex;
+  gap: 6px;
+}
+
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--gs-ink-muted);
+}
+
+.dotOn {
+  background: var(--gs-mode-verify);
+  border-color: var(--gs-mode-verify);
+}
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 48px;
+}
+
+.bar {
+  flex: 1;
+  min-width: 4px;
+  background: var(--gs-surface-dark);
+  border-radius: 2px 2px 0 0;
+}
+
+/* Scheduler rule table */
+.rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rule {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--gs-radius-field);
+  font-size: 13px;
+  color: var(--gs-ink-muted);
+}
+
+.ruleActive {
+  background: var(--gs-surface-dark);
+  color: var(--gs-ink-invert);
+}
+
+.cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 899px) {
+  .cols {
+    grid-template-columns: 1fr;
+  }
+}

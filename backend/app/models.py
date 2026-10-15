@@ -49,6 +49,7 @@ class StatusResponse(BaseModel):
     sqi: int = 0
     last_packet_ts: Optional[float] = None
     aux_connected: bool = False
+    aux_source: str = "simulator"  # "ble" | "simulator"
     session_id: Optional[int] = None
     # Human-readable label for whichever RiskModel is actually scoring data
     # right now -- "Stub (heuristic)" until a trained model is configured via
@@ -57,12 +58,17 @@ class StatusResponse(BaseModel):
     heart_rate_bpm: Optional[float] = None
     motion_ms2: Optional[float] = None
     moving: Optional[bool] = None
+    # Seconds of clean signal the model still needs before it can score;
+    # 0 when scoring, None when there is no clean signal at all.
+    risk_ready_in_s: Optional[float] = None
 
 
 class RiskCurrentResponse(BaseModel):
-    score: float
+    # None until the first window has been scored (no signal yet, leads off,
+    # or a fixed-length model still filling its buffer) -- never a fake 0.0.
+    score: Optional[float] = None
     mode: Mode
-    timestamp: float
+    timestamp: Optional[float] = None
     alerting: bool = False
 
 
@@ -91,6 +97,9 @@ class FootCheckRecord(BaseModel):
     t_right: Optional[float] = None
     delta_t: Optional[float] = None
     valid: bool
+    # Backend's verdict on delta_t against the IWGDF reference threshold;
+    # None for an invalid check. The UI shows it, never recomputes it.
+    elevated: Optional[bool] = None
     next_check_scheduled: Optional[float] = None
     action: Optional[str] = None
 
@@ -178,11 +187,30 @@ class FootCheckResultPayload(BaseModel):
     t_right: Optional[float] = None
     delta_t: Optional[float] = None
     valid: bool
+    elevated: Optional[bool] = None
     timestamp: float
     next_check_scheduled: Optional[float] = None
+    action: Optional[str] = None
 
 
 class RiskUpdatePayload(BaseModel):
     score: float
     mode: Mode
     timestamp: float
+
+
+# --- Simulator controls (development only, config.gs_enable_sim) -----------
+
+class SimScenarioRequest(BaseModel):
+    name: str  # validated against simulator.SCENARIOS by the route (400, not 422)
+    duration_s: Optional[float] = Field(default=None, gt=0, le=3600)
+
+
+class SimSettingsRequest(BaseModel):
+    heart_rate_bpm: Optional[float] = Field(default=None, ge=30, le=200)
+    battery_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    random_artifacts: Optional[bool] = None
+
+
+class SimFootRequest(BaseModel):
+    mode: str  # validated against simulator.FOOT_MODES by the route

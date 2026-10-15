@@ -1,0 +1,31 @@
+.list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gs-line);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.label {
+  font-size: 13px;
+  color: var(--gs-ink-muted);
+}
+
+.value {
+  margin: 0;
+  font-family: var(--gs-font-mono);
+  font-size: 13px;
+  color: var(--gs-ink);
+  text-align: right;
+}

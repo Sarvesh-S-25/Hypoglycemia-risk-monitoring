@@ -72,3 +72,40 @@ export function formatDeltaT(deltaT) {
   if (deltaT === null || deltaT === undefined) return '--'
   return `Δ${deltaT.toFixed(1)}°C`
 }
+
+/** A share of a total, e.g. accepted windows: "80% (96/120)". */
+export function formatShare(part, total) {
+  if (part === null || part === undefined || !total) return '--'
+  return `${Math.round((part / total) * 100)}% (${part}/${total})`
+}
+
+export function formatMs(ms) {
+  if (ms === null || ms === undefined) return '--'
+  return `${ms.toFixed(1)} ms`
+}
+
+/** Short durations: "18 s", "4m 10s". */
+export function formatSeconds(seconds) {
+  if (seconds === null || seconds === undefined) return '--'
+  if (seconds < 60) return `${Math.round(seconds)} s`
+  const m = Math.floor(seconds / 60)
+  return `${m}m ${Math.round(seconds % 60)}s`
+}
+
+/** Schedule intervals: 86400 -> "24 h", 1800 -> "30 min". */
+export function formatInterval(seconds) {
+  if (seconds === null || seconds === undefined) return '--'
+  if (seconds >= 3600) return `${+(seconds / 3600).toFixed(1)} h`
+  return `${Math.round(seconds / 60)} min`
+}
+
+/** Raw ADC counts from the ADS1115 (0.125 mV each at +-4.096 V). */
+export function formatCounts(n) {
+  if (n === null || n === undefined) return '--'
+  return `${n}`
+}
+
+export function formatThreshold(value, unit = '') {
+  if (value === null || value === undefined) return '--'
+  return `${value}${unit}`
+}

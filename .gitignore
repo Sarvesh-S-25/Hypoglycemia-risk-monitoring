@@ -10,6 +10,9 @@ backend/data/*.db
 backend/data/*.db-journal
 backend/data/*.db-wal
 backend/data/*.db-shm
+# Per-machine model choice and uploaded models (share .onnx files separately)
+backend/data/model_selection.txt
+backend/models/*.onnx
 
 # Env files (committed as .env.example instead)
 backend/.env

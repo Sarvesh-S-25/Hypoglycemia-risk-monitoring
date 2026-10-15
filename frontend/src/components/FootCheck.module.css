@@ -1,0 +1,82 @@
+/* Lime foot-check card: copy left, white device panel right
+   (docs/DESIGN_SYSTEM.md section 6). */
+.split {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: var(--gs-gap);
+  align-items: start;
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.error {
+  color: var(--gs-danger);
+  font-size: 13px;
+  margin: 0;
+}
+
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 90px 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--gs-line);
+  font-size: 14px;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.time {
+  font-family: var(--gs-font-mono);
+  color: var(--gs-ink-muted);
+  font-size: 13px;
+}
+
+.temps {
+  color: var(--gs-ink);
+}
+
+.delta {
+  font-family: var(--gs-font-mono);
+}
+
+@media (max-width: 899px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}

@@ -24,6 +24,15 @@
   background: transparent;
   color: var(--gs-ink);
   padding: 0;
+  /* No padding means nothing to clip into: the serif titles' overhang was
+     being cut off ("Heart rate" -> "leart rate") by the base overflow. */
+  overflow: visible;
+}
+
+.white {
+  background: var(--gs-surface-white);
+  color: var(--gs-ink);
+  border: 1px solid var(--gs-line);
 }
 
 .gridOverlay {

@@ -154,7 +154,10 @@ section.
 | Component | Spec |
 |---|---|
 | `Button` | Variants `dark` (bg `--gs-surface-dark`, text `--gs-ink-invert`), `white` (bg white, text `--gs-ink`), `lime` (bg `--gs-lime`, text `--gs-lime-ink`), `ghost` (transparent, 1px `--gs-line`). All pill, `padding: 10px 18px`. Primary actions carry a trailing arrow. |
-| `Card` | `radius-card`, `pad-card`, one of the surfaces via a `tone` prop: `dark`, `grey`, `lime` or `plain`. |
+| `Card` | `radius-card`, `pad-card`, one of the surfaces via a `tone` prop: `dark`, `grey`, `lime`, `white` (white with a 1px `--gs-line` border, for vitals tiles and engineering panels) or `plain` (no fill, no padding, never clips). |
+| `Segmented` | Pill group in a white, 1px-line track; the active item is `--gs-surface-dark` with inverted ink. Used for the dashboard's Patient/Engineering switch. |
+| `Meter` | 8px pill track in `--gs-surface-grey`, filled in `ink`, `ok`, `warn` or `danger`, with an optional 2px ink marker for a limit. The caller picks the tone from backend state. |
+| `KeyValue` | Label/value rows divided by `--gs-line`; label in muted sans 13px, value in mono 13px, right-aligned. The engineering view's readouts. |
 | `Panel` | The white inner "device screen": white background, `radius-inner`, `shadow-panel`, `padding: 20px`. Every chart lives in a Panel inside a Card. |
 | `Badge` | Pill, 1px border in the mode color, 6px dot, sans 12px. |
 | `FieldRow` | The reference's `$ / Client pays / USD` row: `radius-field`, white background, 1px `--gs-line`, 14px padding, a 32px square leading icon chip (grey, or lime when active), tiny label above the value. Reused for "Last check", "Next check" and the device status rows. |

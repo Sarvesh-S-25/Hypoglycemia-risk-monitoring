@@ -10,9 +10,9 @@ actually true in the code.
 
 | | |
 |---|---|
-| **Phase** | 6 — Foot-check and session views (starting) |
-| **Last updated** | 2026-10-13 |
-| **Next action** | Phase 6: lime FootCheckPanel (countdown, history, manual trigger), SessionSummary (mode-time breakdown, CSV export button), assembled as additional Dashboard sections per DESIGN_SYSTEM section 6 layout |
+| **Phase** | 6 — Foot-check and session views (foot check done; session views not started) |
+| **Last updated** | 2026-10-15 |
+| **Next action** | Phase 6: SessionSummary (mode-time breakdown, CSV export button). Evaluate the trained model on real labelled ECG (it has only been checked on synthetic ECG; see the 2026-10-15 simulator entry) |
 | **Blocked on** | Nothing |
 | **Runnable end to end?** | Yes, verified live in an actual connected browser (Claude-in-Chrome), not just via curl: navigated the real dashboard, scrolled through every panel, clicked through to the Model page and back, uploaded a real ONNX file through the actual file input, and confirmed zero console errors throughout. The main dashboard (ECG waveform, risk trend, mode indicator, device status, alert banner) and a new Model management page (upload/select/reset a trained `.onnx` risk model, applied to live data immediately) are both built, tested, and verified working end to end. Foot-check panel and session summary views do not exist yet. `/kit` (the Phase 4 style-guide gallery) was removed entirely at the user's request -- the design tokens it was built to check now only need to look right in the real dashboard, which has been visually confirmed. |
 
@@ -119,6 +119,144 @@ Answer these as the information arrives; do not block on them.
    `eta_s: 6` in `POST /api/foot/request` is a placeholder.
 
 ## Log
+
+### 2026-10-15 (evening) — Simulator rebuilt: realistic ECG, scenarios, simulated foot module, dashboard controls
+
+**Done, verified live** with `GS_SOURCE=simulator GS_AUX_SOURCE=simulator` and the
+trained ONNX model.
+
+- **Realistic synthetic ECG** (`app/simulator.py`): Gaussian P/Q/R/S/T beats (the
+  ECGSYN idea), respiratory heart-rate variability, baseline wander, 50 Hz pickup and
+  noise, about 1200 counts per mV. It replaces a sine-plus-spike that had no P or T
+  waves. Plotted and checked by eye.
+- **Scenarios** (`POST /api/sim/scenario`): `motion` (EMG plus baseline steps,
+  accelerometer over the limit), `leads_off` (flat, leads-off flag set), `hypo` (a
+  **test pattern** ramping in tachycardia, QT prolongation, T-wave flattening and ST
+  depression) and `spike` (the legacy ×3 amplitude). Plus `POST /api/sim/settings`
+  (heart rate, battery, random artifacts) and `GET /api/sim/state`. Contract updated.
+  Random artifact windows are now actually corrupted, not just flagged.
+- **Simulated foot module** (`SimulatedFootModule`): the same `connected` / `eta_s` /
+  `read()` interface as `AuxGateway`, so simulated and real checks share one code path.
+  `run_simulated_foot_check` is gone. Modes are random, normal, elevated, invalid and
+  offline (`POST /api/sim/foot`). Offline behaves like an out-of-range real module
+  (503, `aux_connected: false`).
+- **Dashboard:** a Simulator panel at the top of the Engineering view (scenario cards
+  with the policies each one exercises, heart-rate and battery presets, the artifact
+  toggle, pause/resume, foot-module mode). A "Simulated data" notice on both views
+  says which streams are synthetic.
+- **Live run:** with the hypo scenario, the trained model stayed near 0.00 until about
+  75% pattern strength, then reached Verify (0.88). One dip to 0.59 reset the
+  confirmation (P4), then three consecutive windows ≥ 0.75 **fired the alert**. Foot
+  modes, live: normal → `scheduled_24h`, elevated (ΔT 2.69) → `scheduled_8h`, invalid →
+  `retry_1h`, offline → 503.
+- Tests: backend 90 passed (11 new in `test_simulator.py`), frontend 48 passed.
+  `test_simulator_reads_about_72_bpm` now turns random artifacts off, because artifact
+  windows really are corrupted now.
+
+**Correction to the earlier entries today:** the finding that "the trained model does
+not discriminate" (scores swinging 0.00–0.97 on normal ECG) was caused by the old
+simulator's non-ECG waveform, not by the model. On the realistic synthetic ECG
+(4 seeds, 244 scored windows each), the model scores:
+
+| Input | Mean score | Windows ≥ 0.75 |
+|---|---|---|
+| Normal shape, 72 bpm | 0.03 | 0% |
+| Normal shape, 97 bpm and 120 bpm (exercise-like) | 0.00 | 0% |
+| Hypo pattern shape at 72 bpm | 0.92 | 96% |
+| Hypo pattern shape at 97 bpm | 0.95 | 100% |
+
+So it responds to ECG morphology, not heart rate. **Still open:** all of this is
+synthetic. The hypo pattern was written from literature descriptions, not taken from
+recordings, and the model's performance on real labelled ECG is unknown (the
+notebook saved no evaluation output). The thresholds were not tuned to these results.
+
+### 2026-10-15 (later) — Patient/Engineering views, diagnostics endpoint, policies, training-filter parity
+
+**Done, verified live** (headless Chrome screenshots of all three pages against the
+running backend, with both BLE nodes connected).
+
+- **Patient view** redesigned: the risk card shows "--" with the reason (leads off,
+  moving, warming up with seconds left, disconnected), never a placeholder 0.00. A row
+  of three tiles (Heart rate, Activity, System summary), then the trend, then the
+  lime foot check. Fixed the clipped serif titles: `plain` cards had zero padding
+  plus `overflow: hidden`.
+- **Engineering view** (`?view=engineering`): raw stream, links, the signal pipeline
+  (acceptance bar split by leads-off and motion, motion against threshold, last-window
+  ADC stats), the model (buffer seconds, input spec, output, last score, inference
+  time), the controller (threshold scale with the backend's mode highlighted, Verify
+  confirmation dots, recent scores, cooldown) and the foot scheduler (rule table with
+  the backend's last `action` highlighted, raw last reading). Each panel links to the
+  policy that governs it.
+- **`GET /api/diagnostics`** (contract updated): one read-only snapshot of the
+  objects that make the decisions. Session counters were added to `AppState`.
+  `RiskModel.context()` reports buffer state. The status gains `risk_ready_in_s`.
+  **`/api/risk/current` now returns `score: null`** instead of a fake `0.0` before the
+  first scored window. The `foot_check_result` frame carries `action`.
+- **`docs/POLICIES.md`** plus an in-app **/policies** page with live numbers: the role
+  of each part, why the MPU6050 matters, policies P1–P10, and the failure-mode table.
+- **Found and fixed: the bench ECG firmware does not filter.** Neither the SRD's
+  0.5–40 Hz band-pass nor the 50 Hz notch is implemented on the device (it only
+  decimates), while the model was trained on filtered ECG. `app/ecg_filter.py`
+  reproduces the notebook's `filtfilt(butter(4))` + `iirnotch(50, 30)` at zero phase
+  in numpy (no scipy in the venv). It is verified: −3 dB at 0.5 Hz, unity passband,
+  null at 50 Hz. `OnnxRiskModel` applies it before z-scoring (`model_prefilter`).
+- Tests: backend 79 passed, frontend 47 passed.
+
+**Fell short / open:**
+- With the filter applied, the model **still** swings 0.004–0.965 between windows
+  that share 29 of their 30 s (simulated normal ECG, mean 0.55). Preprocessing
+  mismatch is ruled out as the cause; the model itself needs evaluation and
+  retraining.
+- The ECG firmware still doesn't filter on-device as the SRD says. The host filter
+  covers the model input only; the live waveform stays unfiltered.
+- The UI was checked with headless screenshots, not interactively (the Chrome
+  extension was not connected).
+
+### 2026-10-15 — Real foot module over BLE, trained ONNX model wired in, foot-check card
+
+**Done, verified on hardware.** Both ESP32 nodes ran at once over BLE: the primary
+(ECG) via `ble_gateway`, and the new foot module via the new `app/aux_gateway.py`
+(`GS_AUX_SOURCE=ble`). A manual check from `POST /api/foot/request` woke the real
+node and returned L 21.85 °C / R 22.18 °C, delta 0.33 °C, valid. The scheduler set
+`scheduled_24h` and the row was persisted. The firmware is
+`~/esp32-projects/glucosentry-aux-firmware` (outside this repo, like the primary's).
+
+- **Contract (`docs/API_CONTRACT.md`):** `foot_temp_result` is now pinned to 13 bytes
+  (`<fffB`). The status gains `aux_source`. Foot-check records and frames gain
+  `elevated`, decided by `controller.is_foot_check_elevated`, so the UI never compares
+  `delta_t`. `POST /api/foot/request` returns 503 when the real module is out of
+  range. The bench node idles awake (dividers unpowered, radio advertising), because
+  an ESP32 in deep sleep cannot receive a BLE write. True deep sleep needs a timer or
+  GPIO wake, which is still open.
+- **Model:** the D1NAMO CNN+BiLSTM (`glucosentry_cnn_bilstm.onnx`) takes exactly
+  `(batch, 1, 7500)`, which is 30 s at 250 Hz, z-scored per window, and outputs a
+  **logit**. Loaded as before, every `predict` would have raised. `OnnxRiskModel`
+  now buffers 30 s of accepted windows, resamples 100 → 250 Hz, z-scores, applies a
+  sigmoid to `*logit*` outputs, and returns `None` until the buffer is full.
+  `main.py` calls `model.reset()` on every rejected window, so the model never scores
+  across a gap. That means **no risk score for the first 30 s and for 30 s after any
+  motion or leads-off window.** Dynamic-length models behave as before.
+- **Frontend:** a lime `FootCheck` card (last result, countdown, foot-module state,
+  history with backend-decided Normal/Elevated/Invalid badges, and the manual
+  trigger, disabled when the real module is out of range).
+- **Tests:** backend 74 passed (4 new: buffering, reset, packet parsing), frontend 43
+  passed (3 new). The simulator path is unchanged and still the default for both
+  sources.
+
+**Fell short / open:**
+- **The trained model does not yet discriminate on our signal.** On simulated normal
+  ECG it scored 0.05–0.96 window to window (mean 0.68, 30 windows), and pure Gaussian
+  noise scored 0.11–0.59. With the current thresholds (0.30 / 0.55 / 0.75), normal
+  ECG will sit in Watch and can fire alerts. The training notebook saved no outputs,
+  so its validation F1 is unknown. The model needs evaluation (and probably more
+  training) before its alerts mean anything. Thresholds were deliberately not retuned
+  to hide this.
+- The thermistors on the bench are 100 Ω NTCs (marked 101), used with 1 kΩ fixed
+  resistors and Beta 3950 assumed. Readings are uncalibrated in absolute terms; left
+  and right agree within about 0.5 °C, which is what delta-T needs.
+- Not checked in a browser this session (the Chrome extension was not connected). The
+  page and modules serve, the API answers through the stack, and component tests
+  pass.
 
 ### 2026-10-13 — BLE gateway live on hardware; heart rate, activity and leads-off UI; two bugs fixed
 

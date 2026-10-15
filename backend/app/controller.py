@@ -204,14 +204,22 @@ def schedule_next_foot_check(
     if not last_result_valid:
         return FootCheckDecision(action="retry_1h", next_check_scheduled=now + settings.foot_check_invalid_retry_s)
 
-    elevated = last_delta_t is not None and last_delta_t > settings.foot_check_elevated_threshold_c
-    if elevated:
+    if is_foot_check_elevated(last_delta_t):
         return FootCheckDecision(
             action="scheduled_8h", next_check_scheduled=now + settings.foot_check_elevated_interval_s
         )
     return FootCheckDecision(
         action="scheduled_24h", next_check_scheduled=now + settings.foot_check_normal_interval_s
     )
+
+
+def is_foot_check_elevated(delta_t: Optional[float]) -> Optional[bool]:
+    """delta_t above the IWGDF reference threshold (background, not a
+    diagnostic claim). None when there is no valid reading to judge. The one
+    place this comparison lives, so the scheduler and the UI's flag agree."""
+    if delta_t is None:
+        return None
+    return delta_t > settings.foot_check_elevated_threshold_c
 
 
 def should_fire_foot_check(

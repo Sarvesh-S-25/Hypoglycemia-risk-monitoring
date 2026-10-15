@@ -1,0 +1,152 @@
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.lede {
+  font-size: 13px;
+  color: var(--gs-ink-muted);
+  margin: 4px 0 0;
+}
+
+.error {
+  color: var(--gs-danger);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.cols {
+  display: grid;
+  grid-template-columns: 7fr 5fr;
+  gap: 32px;
+}
+
+.note {
+  font-size: 13px;
+  color: var(--gs-ink-muted);
+  margin: 4px 0 12px;
+}
+
+.scenarios {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.scenario {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  font-family: var(--gs-font-sans);
+  background: var(--gs-surface-white);
+  border: 1px solid var(--gs-line);
+  border-radius: var(--gs-radius-field);
+  padding: 12px;
+  cursor: pointer;
+  color: var(--gs-ink);
+  transition: border-color var(--gs-transition), background var(--gs-transition);
+}
+
+.scenario:hover {
+  border-color: var(--gs-ink-muted);
+}
+
+.scenarioActive,
+.scenarioActive:hover {
+  background: var(--gs-surface-dark);
+  border-color: var(--gs-surface-dark);
+  color: var(--gs-ink-invert);
+}
+
+.scenarioTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scenarioName {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.scenarioMeta {
+  font-family: var(--gs-font-mono);
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.scenarioShows {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
+.now {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.nowText {
+  font-family: var(--gs-font-mono);
+  font-size: 12px;
+  color: var(--gs-ink-muted);
+}
+
+.progress {
+  margin-top: 10px;
+}
+
+.progressLabel {
+  display: block;
+  font-size: 12px;
+  color: var(--gs-ink-muted);
+  margin-bottom: 6px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--gs-line);
+  margin-top: 12px;
+}
+
+.row + .row {
+  margin-top: 0;
+}
+
+.rowLabel {
+  font-size: 13px;
+  color: var(--gs-ink-muted);
+}
+
+.footHints {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--gs-ink-muted);
+}
+
+.footHints b {
+  color: var(--gs-ink);
+  font-weight: 600;
+}
+
+@media (max-width: 1099px) {
+  .cols {
+    grid-template-columns: 1fr;
+  }
+}

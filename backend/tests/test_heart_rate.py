@@ -63,14 +63,14 @@ def test_rejected_window_resets_instead_of_going_stale():
 
 
 def test_simulator_reads_about_72_bpm():
-    """The simulator's waveform is ~72 bpm by construction (1.2 Hz)."""
+    """The simulator's base rate is 72 bpm (with ~4% respiratory variation)."""
     sim = Simulator(seed=3)
+    sim.random_artifacts = False  # artifact windows really are corrupted now
     sim.start()
     hr = HeartRateEstimator()
     readings = []
     for _ in range(30):
         w = sim._next_window()
-        w = w.model_copy(update={"sqi": 1})  # ignore its random artifact windows here
         if (bpm := hr.update(w)) is not None:
             readings.append(bpm)
     assert readings and all(abs(r - 72) < 3 for r in readings), readings
