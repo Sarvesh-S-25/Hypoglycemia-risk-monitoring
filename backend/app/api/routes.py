@@ -146,7 +146,19 @@ async def post_foot_request(request: Request) -> FootRequestResponse:
     if battery_pct is not None and battery_pct < settings.battery_aux_min:
         raise HTTPException(status_code=503, detail="battery insufficient for auxiliary wake")
 
-    if state.aux_gateway is not None and not state.aux_gateway.connected:
+    gateway = state.aux_gateway
+    if gateway is not None and getattr(gateway, "rendezvous", False):
+        # The real node deep-sleeps and can't be woken on demand: queue the
+        # check for its next check-in (app/main.py _aux_checkin).
+        if gateway.missing:
+            raise HTTPException(status_code=503, detail="foot module not found")
+        state.foot_check_requested = True
+        bus.publish("status", state.status_dict())
+        wake_ts = gateway.next_wake_ts if not gateway.connected and gateway.next_wake_ts else time.time()
+        eta = max(gateway.eta_s, int(round(wake_ts - time.time())) + settings.aux_eta_s + 2)
+        return FootRequestResponse(requested=True, request_id=f"fc_queued_{uuid.uuid4().hex[:8]}", eta_s=eta)
+
+    if gateway is not None and not gateway.connected:
         raise HTTPException(status_code=503, detail="foot module not connected")
 
     state.foot_check_busy = True

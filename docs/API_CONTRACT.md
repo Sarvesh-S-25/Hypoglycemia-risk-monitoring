@@ -68,8 +68,10 @@ Wire details, fixed at firmware bring-up (2026-10-13):
 
 | Characteristic | Direction | Payload | Purpose |
 |---|---|---|---|
-| `wake` | write | `uint8` | wake trigger |
+| `wake` | write | `uint8` | take a bilateral reading now |
 | `foot_temp_result` | notify | `{t_left: float, t_right: float, delta: float, valid: bool}` | bilateral reading |
+| `sleep` (`0000b003-…`) | write | `uint32` LE seconds | go into deep sleep for this long |
+| `node_info` (`0000b004-…`) | read | `uint8 wake_reason, uint32 boot_count, uint32 last_sleep_s` | why the node woke: 0 power-on, 1 timer, 2 button |
 
 Notes for implementers:
 
@@ -78,13 +80,25 @@ Notes for implementers:
   An invalid reading (a temperature outside 10–45 °C, or two reads 100 ms apart
   disagreeing by 0.5 °C or more) carries `valid = 0` and zeros for the temperatures.
   The backend stores `|delta|` as `delta_t`.
-- The backend (`app/aux_gateway.py`, `GS_AUX_SOURCE=ble`) connects to the node
-  directly and keeps the link up, independent of the primary node; `aux_wake_cmd`
-  on the primary is not used on the bench build. A wake with no result within
-  `aux_result_timeout_s` is recorded as an invalid check, so the scheduler retries.
-- The bench node idles with its thermistor dividers unpowered and the radio
-  advertising rather than in deep sleep, because an ESP32 in deep sleep cannot
-  receive a BLE write.
+- **Deep-sleep check-ins.** The node deep-sleeps (radio off, dividers unpowered with
+  GPIO32 held low) and wakes on its RTC timer or its BOOT button. It then advertises
+  for up to 20 s. The backend (`app/aux_gateway.py`, `GS_AUX_SOURCE=ble`) connects,
+  reads `node_info`, and lets the scheduler decide
+  (`controller.foot_checkin_should_read`). If a check is due, or a manual one was
+  queued or the button woke the node, it writes `wake` and waits for
+  `foot_temp_result`. It **always** finishes by writing `sleep` with
+  `controller.foot_sleep_seconds`: the time until the next scheduled check, clamped
+  to `aux_min_sleep_s`–`aux_max_sleep_s` (5–30 s by default, so manual requests stay
+  responsive in a demo). With no host in the 20 s window, or no `sleep` within 30 s
+  of connecting, the node sleeps 60 s and tries again.
+- Because the node can't be woken over BLE, `POST /api/foot/request` *queues* the
+  check for the next check-in (its `eta_s` covers the wait). A `wake` with no result
+  within `aux_result_timeout_s` is recorded as an invalid check, so the scheduler
+  retries. `aux_wake_cmd` on the primary node is not used.
+- Measured on the bench (2026-10-15): check-in to result in 227 ms; the node was
+  back in deep sleep about 90 ms after the result. The dev board's USB bridge, LED
+  and regulator still draw milliamps in deep sleep, so microamp figures need a bare
+  module.
 
 ### 2.3 Normalized ECG window (internal, after parsing)
 
@@ -159,6 +173,9 @@ the dashboard can render an honest empty state.
   "last_packet_ts": 1732000000.0,
   "aux_connected": false,
   "aux_source": "simulator",
+  "aux_state": "awake",
+  "aux_next_wake_ts": null,
+  "aux_check_queued": false,
   "session_id": 4,
   "model": "Stub (heuristic)",
   "heart_rate_bpm": 72.4,
@@ -174,6 +191,11 @@ that much clean signal exists, and resets to `null` on any rejected window rathe
 than reporting a stale rate. `motion_ms2` is the latest window's value (see 2.3) and
 `moving` is the backend's verdict on it against `serial_motion_sqi_threshold_ms2`,
 `null` when `motion_ms2` is. The UI displays these; it does not threshold them.
+`aux_state` is `"awake"` (checked in right now), `"asleep"` (deep sleep, due back at
+`aux_next_wake_ts`) or `"missing"` (never seen, or more than `aux_missing_grace_s`
+overdue). The simulated module is always `"awake"`, or `"missing"` when set to
+offline. `aux_check_queued` is true while a manual check waits for the next
+check-in. `aux_connected` stays as the raw link state.
 `risk_ready_in_s` is how many more seconds of clean signal the model needs before it
 can score: `0` while scoring, `null` when there is no clean signal to buffer.
 `aux_source` is `"ble"` when foot checks go to the real node (then `aux_connected`

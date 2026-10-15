@@ -6,7 +6,7 @@ import styles from './Engineering.module.css'
 export default function LinksPanel({ link, sessionId }) {
   const l = link ?? {}
   let aux = 'simulated'
-  if (l.aux_source === 'ble') aux = l.aux_connected ? 'connected (BLE)' : 'scanning'
+  if (l.aux_source === 'ble') aux = { awake: 'awake (BLE)', asleep: 'deep sleep', missing: 'not found' }[l.aux_state] ?? '--'
 
   return (
     <div>

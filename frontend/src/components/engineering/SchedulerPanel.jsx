@@ -25,8 +25,11 @@ export default function SchedulerPanel({ foot }) {
     { action: 'retry_1h', when: 'Invalid or no answer', next: `retry ${formatInterval(f.invalid_retry_s)}` },
   ]
 
-  let link = 'simulated'
-  if (f.source === 'ble') link = f.connected ? 'connected (BLE)' : 'not found'
+  const node = f.node ?? {}
+  let link = 'simulated (always awake)'
+  if (f.source === 'ble') {
+    link = { awake: 'awake (BLE)', asleep: 'deep sleep', missing: 'not found' }[node.state] ?? '--'
+  }
 
   return (
     <div>
@@ -34,7 +37,7 @@ export default function SchedulerPanel({ foot }) {
         <h3 className="gs-card-title" style={{ margin: 0 }}>Foot-check scheduler</h3>
         <PolicyTags ids={['P5', 'P6']} />
       </div>
-      <p className={styles.lede}>Each result sets the next wake. The module sleeps in between.</p>
+      <p className={styles.lede}>Each result sets the next check. The module deep-sleeps in between and is told how long to sleep each time it checks in.</p>
 
       <div className={styles.cols}>
         <div>
@@ -53,6 +56,7 @@ export default function SchedulerPanel({ foot }) {
                 ['Next check', formatCountdown(f.next_check_scheduled)],
                 ['Battery floor for a wake', formatThreshold(f.battery_min_pct, '%')],
                 ['Result timeout', formatSeconds(f.result_timeout_s)],
+                ...(f.source === 'ble' ? [['Longest sleep between check-ins', formatSeconds(f.max_sleep_s)]] : []),
               ]}
             />
           </div>
@@ -61,7 +65,15 @@ export default function SchedulerPanel({ foot }) {
           <div className={styles.blockLabel}><span>Last reading (raw)</span></div>
           <KeyValue
             rows={[
-              ['Module link', link],
+              ['Module', link],
+              ...(f.source === 'ble'
+                ? [
+                    ['Next check-in', node.state === 'asleep' ? formatCountdown(node.next_wake_ts) : '--'],
+                    ['Last woke because', node.wake_reason ?? '--'],
+                    ['Check-ins this session', node.checkins ?? 0],
+                  ]
+                : []),
+              ['Manual check queued', f.check_queued ? 'yes' : 'no'],
               ['Check in flight', f.busy ? 'yes' : 'no'],
               ['When', last ? formatRelativeTime(last.timestamp) : '--'],
               ['Left / right', last?.valid ? `${formatTemperature(last.t_left)} / ${formatTemperature(last.t_right)}` : '--'],

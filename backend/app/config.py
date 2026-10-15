@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     gs_aux_source: str = "simulator"
     aux_result_timeout_s: float = 10.0  # wake written -> foot_temp_result must arrive within this
     aux_eta_s: int = 1  # what POST /api/foot/request tells the UI to expect from the real node
+    # The real node deep-sleeps between check-ins and is told how long to sleep
+    # each time (app/aux_gateway.py). It sleeps until the next scheduled check,
+    # capped at aux_max_sleep_s so a manual "check now" waits at most that long.
+    # 30 s suits a demo; raise it to the full interval for energy measurements.
+    aux_max_sleep_s: float = 30.0
+    aux_min_sleep_s: float = 5.0
+    # How long past its expected check-in the node may be silent before the
+    # status reports it missing (covers the firmware's 20 s advertising window
+    # plus a scan cycle).
+    aux_missing_grace_s: float = 45.0
 
     # --- CORS ------------------------------------------------------------------
     gs_cors_origin: str = "http://localhost:5173"
@@ -94,6 +104,8 @@ class Settings(BaseSettings):
     ble_aux_service_uuid: str = "0000b000-0000-1000-8000-00805f9b34fb"
     ble_char_aux_wake: str = "0000b001-0000-1000-8000-00805f9b34fb"
     ble_char_foot_temp_result: str = "0000b002-0000-1000-8000-00805f9b34fb"
+    ble_char_aux_sleep: str = "0000b003-0000-1000-8000-00805f9b34fb"
+    ble_char_aux_node_info: str = "0000b004-0000-1000-8000-00805f9b34fb"
 
     # --- Controller thresholds (SRD 4.4, docs/PLAN.md section 4) ------------
     # Provisional until the real model's score distribution is known.

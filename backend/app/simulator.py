@@ -258,6 +258,7 @@ class SimulatedFootModule:
     normal with occasional elevated and invalid results."""
 
     eta_s = settings.foot_check_eta_s
+    rendezvous = False  # always reachable: read() runs whenever it's asked
 
     def __init__(self, seed: Optional[int] = None) -> None:
         self.mode = "random"
@@ -275,6 +276,17 @@ class SimulatedFootModule:
 
     def state(self) -> dict:
         return {"mode": self.mode, "connected": self.connected}
+
+    def status(self) -> dict:
+        """Same shape as AuxGateway.status(); this one never sleeps."""
+        return {
+            "state": "awake" if self.connected else "missing",
+            "next_wake_ts": None,
+            "last_seen_ts": None,
+            "wake_reason": None,
+            "boot_count": None,
+            "checkins": 0,
+        }
 
     async def read(self) -> FootReading:
         if not self.connected:

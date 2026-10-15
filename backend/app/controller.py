@@ -232,3 +232,34 @@ def should_fire_foot_check(
     # None = unmeasured (bus-powered); treated as sufficient, per API_CONTRACT 2.3.
     battery_ok = battery_pct is None or battery_pct >= settings.battery_aux_min
     return now >= scheduled_time and battery_ok
+
+
+# --- Foot-module check-ins (deep-sleeping node) ------------------------------
+
+
+def foot_checkin_should_read(
+    *,
+    now: float,
+    scheduled_time: Optional[float],
+    battery_pct: Optional[int],
+    manual_requested: bool,
+    busy: bool,
+) -> bool:
+    """The node checked in from deep sleep: take a reading now? Yes for a
+    pending manual request (dashboard or the node's own button), otherwise
+    only when the scheduled check is due and the battery allows it."""
+    if busy:
+        return False
+    if manual_requested:
+        return True
+    return should_fire_foot_check(scheduled_time=scheduled_time, battery_pct=battery_pct, now=now)
+
+
+def foot_sleep_seconds(*, now: float, scheduled_time: Optional[float]) -> float:
+    """How long to tell the node to sleep: until the next scheduled check,
+    within [aux_min_sleep_s, aux_max_sleep_s]. A check that is already due
+    but was deferred (low battery) backs off by the maximum instead of
+    bringing the node back every few seconds."""
+    if scheduled_time is None or scheduled_time <= now:
+        return settings.aux_max_sleep_s
+    return min(max(scheduled_time - now, settings.aux_min_sleep_s), settings.aux_max_sleep_s)

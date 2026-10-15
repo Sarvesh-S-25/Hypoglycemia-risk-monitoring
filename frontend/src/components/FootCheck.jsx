@@ -7,6 +7,7 @@ import {
   formatCountdown,
   formatDeltaT,
   formatRelativeTime,
+  formatSeconds,
   formatTemperature,
 } from '../lib/format.js'
 import styles from './FootCheck.module.css'
@@ -43,15 +44,23 @@ export default function FootCheck({ liveResult, status }) {
 
   const auxSim = (status?.aux_source ?? 'simulator') === 'simulator'
   // Before the first status frame arrives, don't claim the module is gone.
-  const auxConnected = status ? status.aux_connected : true
-  let auxLabel = auxConnected ? 'Connected (BLE)' : 'Not found -- power on the foot module'
-  if (auxSim) auxLabel = auxConnected ? 'Simulated' : 'Simulated -- set to offline'
+  const auxState = status ? status.aux_state : 'awake'
+  const reachable = auxState !== 'missing'
+  const queued = status?.aux_check_queued ?? false
+
+  let auxLabel
+  if (auxSim) auxLabel = reachable ? 'Simulated' : 'Simulated -- set to offline'
+  else if (auxState === 'awake') auxLabel = 'Awake (BLE)'
+  else if (auxState === 'asleep') auxLabel = `Asleep -- checks in ${formatCountdown(status?.aux_next_wake_ts)}`
+  else auxLabel = 'Not found -- power on the foot module'
 
   async function requestNow() {
     setMessage(null)
     setRequesting(true)
     try {
-      await api.requestFootCheck()
+      const r = await api.requestFootCheck()
+      // A deep-sleeping module reads at its next check-in, not right away.
+      if (r?.eta_s > 3) setMessage(`Queued -- the module reads at its next wake, in about ${formatSeconds(r.eta_s)}.`)
     } catch (err) {
       setRequesting(false)
       setMessage(err instanceof ApiError ? err.detail : 'Request failed')
@@ -69,7 +78,7 @@ export default function FootCheck({ liveResult, status }) {
         <div className={styles.fields}>
           <FieldRow icon="⌁" label="Last check" value={<LastResult result={last} />} />
           <FieldRow icon="⏱" label="Next check" value={formatCountdown(nextCheck)} />
-          <FieldRow icon={auxConnected ? '●' : '○'} label="Foot module" value={auxLabel} />
+          <FieldRow icon={reachable ? '●' : '○'} label="Foot module" value={auxLabel} />
         </div>
       </div>
 
@@ -80,12 +89,12 @@ export default function FootCheck({ liveResult, status }) {
             variant="dark"
             arrow
             onClick={requestNow}
-            disabled={requesting || !auxConnected}
+            disabled={requesting || queued || !reachable}
           >
-            {requesting ? 'Checking…' : 'Request check now'}
+            {requesting || queued ? 'Waiting for result…' : 'Request check now'}
           </Button>
         </div>
-        {message && <p className={styles.error}>{message}</p>}
+        {message && <p className={message.startsWith('Queued') ? styles.note : styles.error}>{message}</p>}
         {checks.length === 0 ? (
           <EmptyState title="No foot checks yet" hint="Request one now, or wait for the schedule." />
         ) : (

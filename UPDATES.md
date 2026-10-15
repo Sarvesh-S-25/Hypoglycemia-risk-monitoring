@@ -120,6 +120,43 @@ Answer these as the information arrives; do not block on them.
 
 ## Log
 
+### 2026-10-15 (night) — Foot module deep sleep with host-set wake times
+
+**Done, verified on hardware.** The foot module now deep-sleeps between check-ins,
+matching step 8 of the invention disclosure ("the host tells the foot module to go
+back to sleep until the next scheduled wake-up").
+
+- **Firmware** (`~/esp32-projects/glucosentry-aux-firmware`, outside this repo):
+  deep sleep on an RTC timer, or a BOOT-button wake (ext0, GPIO0). GPIO32, which
+  powers the dividers, is held low through sleep. On waking, the node advertises for
+  20 s. It has new characteristics `sleep` (uint32 seconds) and `node_info` (wake
+  reason, boot count, last sleep). With no host, or no `sleep` command, it sleeps 60 s
+  and retries.
+- **Backend:** `AuxGateway` now meets the node at each check-in instead of holding a
+  link. `controller.foot_checkin_should_read` (due, manual, or button wake, gated on
+  battery) and `controller.foot_sleep_seconds` (until the next check, clamped to
+  5–30 s) decide what happens; the node is always sent back to sleep.
+  `POST /api/foot/request` queues the check for the next wake (a 503 only when the
+  node is missing). The status gains `aux_state` (awake/asleep/missing),
+  `aux_next_wake_ts` and `aux_check_queued`. Contract and POLICIES updated.
+- **UI:** the foot card shows "Asleep -- checks in 18s" and says when a request is
+  queued; the engineering scheduler panel shows next check-in, wake reason and
+  check-in count.
+- **Measured on the bench:** timer check-ins every ~33 s (30 s sleep plus boot and
+  connect). A queued manual check ran at the next check-in: **227 ms from check-in to
+  result**, then back to sleep about 90 ms later.
+- Tests: backend 100 passed (10 new in `test_aux_sleep.py`), frontend 49 passed.
+- **FIG. 1 block diagram** for the disclosure (labeled, and numbered with a key),
+  black-and-white line art, in `~/Downloads/GlucoSentry_Fig1_block_diagram_*.png/.svg`.
+
+**Fell short / open:**
+- The bench dividers are still wired to 3V3, not GPIO32, so they draw ~6 mA through
+  sleep until the wire is moved (left side, row 12 → row 18).
+- Sleep current is not measured. The dev board's USB-serial bridge, LED and
+  regulator draw milliamps regardless, so microamp figures need a bare module.
+- The simulated foot module doesn't emulate sleep; it stays always reachable.
+- BOOT-button wake is implemented but not yet pressed in a test.
+
 ### 2026-10-15 (evening) — Simulator rebuilt: realistic ECG, scenarios, simulated foot module, dashboard controls
 
 **Done, verified live** with `GS_SOURCE=simulator GS_AUX_SOURCE=simulator` and the

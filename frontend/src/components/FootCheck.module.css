@@ -33,6 +33,12 @@
   gap: 12px;
 }
 
+.note {
+  color: var(--gs-ink-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
 .error {
   color: var(--gs-danger);
   font-size: 13px;

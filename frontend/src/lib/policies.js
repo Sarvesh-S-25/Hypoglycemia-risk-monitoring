@@ -22,7 +22,7 @@ export const COMPONENTS = [
     parts: [
       ['2 × NTC thermistor', 'One per foot. Resistance falls as temperature rises. Left/right asymmetry is an early inflammation sign.'],
       ['2 × 1 kΩ', 'Turns each thermistor’s resistance into a voltage the ADC can read, sized for the 100 Ω parts.'],
-      ['ESP32', 'Separate and independently powered. Wakes on request, reads both feet twice, validates, reports, powers the sensors down.'],
+      ['ESP32', 'Separate and independently powered. Deep-sleeps between check-ins, reads both feet when the host asks, then sleeps for as long as the host says.'],
     ],
   },
   {
@@ -112,5 +112,5 @@ export const FAILURES = [
   ['Model fails to load', 'Falls back to the placeholder, labelled in the UI', ''],
   ['Single spurious high score', 'Needs consecutive windows; cooldown stops repeats', ''],
   ['Model wrong on real ECG', 'Visible in the engineering view’s recent scores', 'Open: only checked on synthetic ECG (normal ≈ 0.03, hypo pattern ≈ 0.95); no real-data evaluation yet'],
-  ['Foot module deep sleep', 'Sensors unpowered between checks', 'Open: deep sleep can’t hear a Bluetooth wake; needs a timer or wired wake'],
+  ['Foot module asleep when a check is wanted', 'Host sets an RTC-timer sleep at every check-in; manual checks queue for the next wake; the BOOT button wakes it now', 'Microamp sleep needs a bare module, not the dev board'],
 ]

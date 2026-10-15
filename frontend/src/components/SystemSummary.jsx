@@ -10,7 +10,8 @@ export default function SystemSummary({ status }) {
   const connected = status?.connected ?? false
   const model = status?.model ?? ''
   const auxSim = (status?.aux_source ?? 'simulator') === 'simulator'
-  const auxConnected = status?.aux_connected ?? false
+  const auxState = status?.aux_state ?? 'missing'
+  const auxReachable = auxState !== 'missing'
 
   const rows = [
     {
@@ -25,8 +26,10 @@ export default function SystemSummary({ status }) {
     },
     {
       label: 'Foot module',
-      value: auxSim ? (auxConnected ? 'Simulated' : 'Simulated, offline') : auxConnected ? 'Connected' : 'Not found',
-      state: !auxConnected ? 'warn' : auxSim ? 'off' : 'ok',
+      value: auxSim
+        ? auxReachable ? 'Simulated' : 'Simulated, offline'
+        : { awake: 'Awake', asleep: 'Asleep (normal)', missing: 'Not found' }[auxState],
+      state: !auxReachable ? 'warn' : auxSim ? 'off' : 'ok',
     },
     {
       label: 'Risk model',

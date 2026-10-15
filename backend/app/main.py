@@ -26,6 +26,8 @@ from app.aux_gateway import AuxGateway, AuxUnavailable
 from app.config import settings
 from app.controller import (
     Controller,
+    foot_checkin_should_read,
+    foot_sleep_seconds,
     is_foot_check_elevated,
     schedule_next_foot_check,
     should_fire_foot_check,
@@ -128,8 +130,11 @@ async def _handle_window(app: FastAPI, window: EcgWindow) -> None:
 
     # Automatic foot-check firing: SRD 4.4's "if scheduled_time_reached and
     # battery_sufficient: wake_auxiliary_node()", checked on every window tick.
+    # A deep-sleeping real node can't be woken on demand; its checks happen
+    # when it checks in (_aux_checkin), so this applies to the simulated one.
     if (
-        not state.foot_check_busy
+        not getattr(state.aux_gateway, "rendezvous", False)
+        and not state.foot_check_busy
         and should_fire_foot_check(
             scheduled_time=state.next_foot_check_scheduled,
             battery_pct=window.battery_pct,
@@ -160,6 +165,27 @@ async def run_foot_check(app: FastAPI, request_id: str) -> None:
             await _record_foot_check(state, request_id, None, None, False)
     finally:
         state.foot_check_busy = False
+
+
+async def _aux_checkin(app: FastAPI, gateway: AuxGateway) -> float:
+    """The real foot module woke from deep sleep and is connected. Take a
+    reading if one is due or was requested, then return how long it should
+    sleep (invention disclosure item 8, steps 3-8)."""
+    state: AppState = app.state.gs
+    now = time.time()
+    manual = state.foot_check_requested or gateway.wake_reason == "button"
+    if foot_checkin_should_read(
+        now=now,
+        scheduled_time=state.next_foot_check_scheduled,
+        battery_pct=state.last_window.battery_pct if state.last_window else None,
+        manual_requested=manual,
+        busy=state.foot_check_busy,
+    ):
+        state.foot_check_requested = False
+        state.foot_check_busy = True
+        kind = "manual" if manual else "scheduled"
+        await run_foot_check(app, request_id=f"fc_{kind}_{int(now)}")  # reschedules from the result
+    return foot_sleep_seconds(now=time.time(), scheduled_time=state.next_foot_check_scheduled)
 
 
 async def _record_foot_check(
@@ -286,7 +312,11 @@ async def lifespan(app: FastAPI):
     tasks = [asyncio.create_task(_consume_source(app))]
     if settings.gs_aux_source == "ble":
         state.aux_gateway = AuxGateway()
-        tasks.append(asyncio.create_task(state.aux_gateway.run(lambda c: _set_aux_link(app, c))))
+        tasks.append(
+            asyncio.create_task(
+                state.aux_gateway.run(lambda c: _set_aux_link(app, c), lambda gw: _aux_checkin(app, gw))
+            )
+        )
     else:
         state.aux_gateway = SimulatedFootModule()
         state.aux_connected = state.aux_gateway.connected

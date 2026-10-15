@@ -4,7 +4,7 @@ import { render, screen, cleanup } from '@testing-library/react'
 
 const diagnostics = {
   timestamp: 1,
-  link: { source: 'ble', connected: true, last_packet_ts: null, battery_pct: null, aux_source: 'ble', aux_connected: false },
+  link: { source: 'ble', connected: true, last_packet_ts: null, battery_pct: null, aux_source: 'ble', aux_connected: false, aux_state: 'missing' },
   pipeline: {
     sample_rate_hz: 100, windows_total: 10, windows_accepted: 6, rejected_leads_off: 3, rejected_motion: 1,
     sqi: 0, leads_off: false, motion_ms2: 1.7, motion_threshold_ms2: 1.0,
@@ -57,7 +57,7 @@ describe('EngineeringView', () => {
     expect(screen.getByText('60% (6/10) accepted')).toBeTruthy()
     expect(screen.getByText('12 s / 30 s')).toBeTruthy()
     expect(screen.getByText('2 / 3')).toBeTruthy()
-    expect(screen.getByText('scanning')).toBeTruthy()
+    expect(screen.getAllByText('not found').length).toBeGreaterThan(0)
     // the scheduler highlights the rule the backend's last action names
     expect(screen.getByText('Valid, |ΔT| > 2.2 °C').closest('li').className).toMatch(/ruleActive/)
   })

@@ -29,21 +29,27 @@ describe('FootCheck', () => {
 
   it('shows the backend elevated flag rather than judging delta_t itself', async () => {
     history.checks = [check(), check({ id: 2, delta_t: 2.8, elevated: false }), check({ id: 3, valid: false, elevated: null })]
-    render(<FootCheck liveResult={null} status={{ aux_source: 'ble', aux_connected: true }} />)
+    render(<FootCheck liveResult={null} status={{ aux_source: 'ble', aux_state: 'awake' }} />)
     await waitFor(() => expect(screen.getByText('Elevated')).toBeTruthy())
     expect(screen.getByText('Normal')).toBeTruthy()
     expect(screen.getByText('Invalid')).toBeTruthy()
-    expect(screen.getByText('Connected (BLE)')).toBeTruthy()
+    expect(screen.getByText('Awake (BLE)')).toBeTruthy()
   })
 
   it('disables the request button when the simulated module is set offline', async () => {
-    render(<FootCheck liveResult={null} status={{ aux_source: 'simulator', aux_connected: false }} />)
+    render(<FootCheck liveResult={null} status={{ aux_source: 'simulator', aux_state: 'missing' }} />)
     expect(await screen.findByText(/set to offline/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /Request check now/ }).disabled).toBe(true)
   })
 
+  it('shows a deep-sleeping module as asleep, with the request still available', async () => {
+    render(<FootCheck liveResult={null} status={{ aux_source: 'ble', aux_state: 'asleep', aux_next_wake_ts: Date.now() / 1000 + 20 }} />)
+    expect(await screen.findByText(/Asleep -- checks in/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Request check now/ }).disabled).toBe(false)
+  })
+
   it('disables the request button when the real module is out of range', async () => {
-    render(<FootCheck liveResult={null} status={{ aux_source: 'ble', aux_connected: false }} />)
+    render(<FootCheck liveResult={null} status={{ aux_source: 'ble', aux_state: 'missing' }} />)
     expect(await screen.findByText(/Not found/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /Request check now/ }).disabled).toBe(true)
   })

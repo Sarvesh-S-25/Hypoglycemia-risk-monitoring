@@ -55,7 +55,7 @@ look alike.
 |---|---|---|
 | **2 × NTC thermistor** | One per foot. Resistance falls as temperature rises. The bench parts are **100 Ω NTCs (marked 101)**, Beta 3950 assumed. | Asymmetry in foot temperature is an early sign of inflammation before a diabetic foot ulcer. The IWGDF reference threshold is 2.2 °C, cited as background, not as a diagnosis. |
 | **2 × 1 kΩ resistor** | Makes a voltage divider with each thermistor (3V3 → 1 kΩ → ADC pin → NTC → GND). | An ADC measures voltage, not resistance. 1 kΩ matches a 100 Ω NTC so the reading falls around 300 mV, inside the ADC's most accurate range (0 dB attenuation). |
-| **ESP32 (auxiliary)** | Waits for a BLE `wake`, powers the dividers, reads both sides twice, validates them, sends `t_left`, `t_right`, `delta`, `valid`, then powers the dividers down. | It's a separate, independently powered node, as the invention disclosure requires (claim 5). |
+| **ESP32 (auxiliary)** | Deep-sleeps between check-ins. On each RTC-timer (or button) wake it advertises; if the host asks, it powers the dividers, reads both sides twice, validates them, and sends `t_left`, `t_right`, `delta`, `valid`. Then it sleeps for as long as the host tells it. | It's a separate, independently powered node, as the invention disclosure requires (claim 5). |
 
 ### Host (laptop)
 
@@ -149,7 +149,8 @@ battery with the charger unplugged**. The AD8232 is powered from 3V3, never 5 V.
 | Model is wrong on real ECG | unexpected scores | Visible in the Engineering view (recent scores); documented in UPDATES.md | **Open:** the model has only been checked on *synthetic* ECG. There it scores normal rhythm about 0.03, ignores a fast but normal-shaped rhythm (97–120 bpm: 0.00), and rises to about 0.95 on the full hypo test pattern. (An earlier "no skill" finding came from the old sine-wave simulator, not the model.) Its performance on real ECG with real glucose labels is unknown: the notebook saved no evaluation results |
 | Single spurious high score | one window ≥ 0.75 | P4: needs 3 in a row; cooldown prevents repeats | — |
 | Alert missed while the wearer moves | no score during motion | — | **Open:** P1 trades coverage for reliability; a long movement period has no risk score |
-| Foot module wants deep sleep | — | Dividers unpowered and the radio idle between checks | **Open:** an ESP32 in deep sleep can't hear a BLE wake. True deep sleep needs a timer or GPIO wake |
+| Foot module asleep when a check is wanted | Can't be woken over BLE | Deep sleep on an RTC timer set by the host at every check-in (capped at 30 s on the bench); manual requests are queued for the next check-in; the BOOT button wakes it for an immediate check | A long cap saves energy but delays manual checks; microamp sleep current needs a bare module, not the dev board |
+| Host absent when the module wakes | No connection in 20 s | Module sleeps 60 s and tries again; status shows "missing" once it is overdue | — |
 | No device clock | — | Windows are stamped with host arrival time (latency is far below the 1 s window) | — |
 | Two BLE scans start at once | "Operation already in progress" | Caught and retried; each gateway scans only while disconnected | — |
 | Serial port held by another program | upload or backend can't open it | Only one program may hold the port; documented in HANDOFF.md | — |

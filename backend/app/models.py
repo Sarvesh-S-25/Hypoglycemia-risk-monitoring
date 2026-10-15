@@ -50,6 +50,9 @@ class StatusResponse(BaseModel):
     last_packet_ts: Optional[float] = None
     aux_connected: bool = False
     aux_source: str = "simulator"  # "ble" | "simulator"
+    aux_state: str = "missing"  # "awake" | "asleep" | "missing"
+    aux_next_wake_ts: Optional[float] = None
+    aux_check_queued: bool = False
     session_id: Optional[int] = None
     # Human-readable label for whichever RiskModel is actually scoring data
     # right now -- "Stub (heuristic)" until a trained model is configured via

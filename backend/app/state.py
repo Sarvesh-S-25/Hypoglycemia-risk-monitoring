@@ -51,6 +51,8 @@ class AppState:
     foot_check_busy: bool = False
     next_foot_check_scheduled: Optional[float] = None
     last_foot_check: Optional[dict] = None  # the last foot_check_result payload
+    # A manual check waiting for the deep-sleeping node's next check-in.
+    foot_check_requested: bool = False
 
     # Session counters for the engineering view (GET /api/diagnostics).
     windows_total: int = 0
@@ -81,12 +83,25 @@ class AppState:
             "last_packet_ts": self.last_window.window_start_ts if self.last_window else None,
             "aux_connected": self.aux_connected,
             "aux_source": settings.gs_aux_source,
+            **self._aux_node_status(),
             "session_id": self.session_id,
             "model": self.model.name,
             "heart_rate_bpm": self.heart_rate.bpm,
             "motion_ms2": motion,
             "moving": None if motion is None else motion > settings.serial_motion_sqi_threshold_ms2,
             "risk_ready_in_s": self.risk_ready_in_s(),
+        }
+
+    def _aux_node_status(self) -> dict:
+        """aux_state: awake | asleep | missing, and when an asleep node is
+        due to check in. The simulated module never sleeps."""
+        if self.aux_gateway is None:
+            return {"aux_state": "missing", "aux_next_wake_ts": None, "aux_check_queued": False}
+        node = self.aux_gateway.status()
+        return {
+            "aux_state": node["state"],
+            "aux_next_wake_ts": node["next_wake_ts"],
+            "aux_check_queued": self.foot_check_requested,
         }
 
     def risk_ready_in_s(self) -> Optional[float]:
@@ -129,6 +144,7 @@ class AppState:
                 "battery_pct": w.battery_pct if w else None,
                 "aux_source": settings.gs_aux_source,
                 "aux_connected": self.aux_connected,
+                "aux_state": self._aux_node_status()["aux_state"],
             },
             "pipeline": {
                 "sample_rate_hz": settings.ecg_sample_rate_hz,
@@ -174,6 +190,9 @@ class AppState:
                 "invalid_retry_s": settings.foot_check_invalid_retry_s,
                 "battery_min_pct": settings.battery_aux_min,
                 "result_timeout_s": settings.aux_result_timeout_s,
+                "max_sleep_s": settings.aux_max_sleep_s,
+                "check_queued": self.foot_check_requested,
+                "node": self.aux_gateway.status() if self.aux_gateway is not None else None,
                 "last_check": self.last_foot_check,
             },
             # Present only when something is simulated, so the engineering
