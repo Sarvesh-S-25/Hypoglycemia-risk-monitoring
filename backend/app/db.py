@@ -337,7 +337,7 @@ class Database:
     # --- device_status ------------------------------------------------------
 
     async def insert_device_status(
-        self, session_id: int, timestamp: float, battery_pct: int, mode: str, leads_off: bool
+        self, session_id: int, timestamp: float, battery_pct: Optional[int], mode: str, leads_off: bool
     ) -> int:
         cur = await self.conn.execute(
             "INSERT INTO device_status (session_id, timestamp, battery_pct, mode, leads_off) "

@@ -7,7 +7,8 @@ import { formatBattery, formatRelativeTime } from '../lib/format.js'
  */
 export default function DeviceStatus({ status }) {
   const connected = status?.connected ?? false
-  const sourceLabel = status?.source === 'simulator' ? 'Simulator' : status?.source === 'ble' ? 'BLE' : 'Disconnected'
+  const sourceLabels = { simulator: 'Simulator', ble: 'BLE', serial: 'USB serial' }
+  const sourceLabel = sourceLabels[status?.source] ?? 'Disconnected'
 
   // "Stub (failed to load ...)" means GS_MODEL_PATH pointed at a model that
   // couldn't be loaded, and the backend silently fell back to the heuristic

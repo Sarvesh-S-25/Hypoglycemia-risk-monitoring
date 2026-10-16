@@ -10,9 +10,9 @@ actually true in the code.
 
 | | |
 |---|---|
-| **Phase** | 6 — Foot-check and session views (starting) |
-| **Last updated** | 2026-09-20 |
-| **Next action** | Phase 6: lime FootCheckPanel (countdown, history, manual trigger), SessionSummary (mode-time breakdown, CSV export button), assembled as additional Dashboard sections per DESIGN_SYSTEM section 6 layout |
+| **Phase** | 6 — Foot-check and session views (foot check done; session views not started) |
+| **Last updated** | 2026-10-15 |
+| **Next action** | Phase 6: SessionSummary (mode-time breakdown, CSV export button). Evaluate the trained model on real labelled ECG (it has only been checked on synthetic ECG; see the 2026-10-15 simulator entry) |
 | **Blocked on** | Nothing |
 | **Runnable end to end?** | Yes, verified live in an actual connected browser (Claude-in-Chrome), not just via curl: navigated the real dashboard, scrolled through every panel, clicked through to the Model page and back, uploaded a real ONNX file through the actual file input, and confirmed zero console errors throughout. The main dashboard (ECG waveform, risk trend, mode indicator, device status, alert banner) and a new Model management page (upload/select/reset a trained `.onnx` risk model, applied to live data immediately) are both built, tested, and verified working end to end. Foot-check panel and session summary views do not exist yet. `/kit` (the Phase 4 style-guide gallery) was removed entirely at the user's request -- the design tokens it was built to check now only need to look right in the real dashboard, which has been visually confirmed. |
 
@@ -46,6 +46,10 @@ Phase definitions and their "Done when" criteria are in `docs/PLAN.md` section 3
       countdown and manual trigger, history table, session summary, CSV export.
 - [ ] **Phase 7 — Hardware connection.** `ble_gateway` against real ESP32 hardware,
       `GS_SOURCE=ble|simulator|auto`.
+      *Partial (2026-10-13):* `GS_SOURCE=ble` works against the real ESP32 (status
+      `source: "ble"`, live windows, mode commands acknowledged by the device), plus an
+      interim `GS_SOURCE=serial`. Unticked until an accepted-window ECG and the alert
+      LED path are verified on hardware -- see log.
 - [ ] **Phase 8 — Hardening and acceptance.** SRD section 8 walked item by item with
       measured numbers recorded below.
 
@@ -92,6 +96,7 @@ Append here when something is decided, so a later session does not reopen it.
 | 2026-09-20 | Added a `sessions` table and `GET /api/session/summary` | The SRD's own Session view needs duration and a mode-time breakdown, which the specified schema cannot answer |
 | 2026-09-20 | Raw ECG samples are not persisted; recent windows live in an in-memory ring buffer | Roughly 70 MB/day for no stated requirement. Add an opt-in NDJSON sink if the evaluation needs raw capture |
 | 2026-09-20 | Visual language taken from `ruul-a6e6a6.mp4`, tokenized in `docs/DESIGN_SYSTEM.md` | Colors were sampled from extracted video frames, so they are exact rather than eyeballed |
+| 2026-10-13 | Add an interim `GS_SOURCE=serial` source (ESP32 over USB) ahead of BLE; BLE (Phase 7 proper) follows as the next step | Hardware (ESP32 + ADS1115 + AD8232 + MPU6500) is on the bench and streaming over USB, while the BLE firmware doesn't exist yet. Serial gets real data onto the dashboard now through the same `_handle_window` sink, so nothing downstream changes when BLE replaces it. The firmware streams raw 250 Hz samples, so decimation to 100 Hz and MPU-based SQI gating run backend-side in `serial_gateway.py` for now (contract section 2.4). `battery_pct` became nullable rather than reporting a made-up 100% for a bus-powered board, and `leads_off` now carries the real AD8232 state |
 
 ## Open questions
 
@@ -114,6 +119,273 @@ Answer these as the information arrives; do not block on them.
    `eta_s: 6` in `POST /api/foot/request` is a placeholder.
 
 ## Log
+
+### 2026-10-15 (night) — Foot module deep sleep with host-set wake times
+
+**Done, verified on hardware.** The foot module now deep-sleeps between check-ins,
+matching step 8 of the invention disclosure ("the host tells the foot module to go
+back to sleep until the next scheduled wake-up").
+
+- **Firmware** (`~/esp32-projects/glucosentry-aux-firmware`, outside this repo):
+  deep sleep on an RTC timer, or a BOOT-button wake (ext0, GPIO0). GPIO32, which
+  powers the dividers, is held low through sleep. On waking, the node advertises for
+  20 s. It has new characteristics `sleep` (uint32 seconds) and `node_info` (wake
+  reason, boot count, last sleep). With no host, or no `sleep` command, it sleeps 60 s
+  and retries.
+- **Backend:** `AuxGateway` now meets the node at each check-in instead of holding a
+  link. `controller.foot_checkin_should_read` (due, manual, or button wake, gated on
+  battery) and `controller.foot_sleep_seconds` (until the next check, clamped to
+  5–30 s) decide what happens; the node is always sent back to sleep.
+  `POST /api/foot/request` queues the check for the next wake (a 503 only when the
+  node is missing). The status gains `aux_state` (awake/asleep/missing),
+  `aux_next_wake_ts` and `aux_check_queued`. Contract and POLICIES updated.
+- **UI:** the foot card shows "Asleep -- checks in 18s" and says when a request is
+  queued; the engineering scheduler panel shows next check-in, wake reason and
+  check-in count.
+- **Measured on the bench:** timer check-ins every ~33 s (30 s sleep plus boot and
+  connect). A queued manual check ran at the next check-in: **227 ms from check-in to
+  result**, then back to sleep about 90 ms later.
+- Tests: backend 100 passed (10 new in `test_aux_sleep.py`), frontend 49 passed.
+- **FIG. 1 block diagram** for the disclosure (labeled, and numbered with a key),
+  black-and-white line art, in `~/Downloads/GlucoSentry_Fig1_block_diagram_*.png/.svg`.
+
+**Fell short / open:**
+- The bench dividers are still wired to 3V3, not GPIO32, so they draw ~6 mA through
+  sleep until the wire is moved (left side, row 12 → row 18).
+- Sleep current is not measured. The dev board's USB-serial bridge, LED and
+  regulator draw milliamps regardless, so microamp figures need a bare module.
+- The simulated foot module doesn't emulate sleep; it stays always reachable.
+- BOOT-button wake is implemented but not yet pressed in a test.
+
+### 2026-10-15 (evening) — Simulator rebuilt: realistic ECG, scenarios, simulated foot module, dashboard controls
+
+**Done, verified live** with `GS_SOURCE=simulator GS_AUX_SOURCE=simulator` and the
+trained ONNX model.
+
+- **Realistic synthetic ECG** (`app/simulator.py`): Gaussian P/Q/R/S/T beats (the
+  ECGSYN idea), respiratory heart-rate variability, baseline wander, 50 Hz pickup and
+  noise, about 1200 counts per mV. It replaces a sine-plus-spike that had no P or T
+  waves. Plotted and checked by eye.
+- **Scenarios** (`POST /api/sim/scenario`): `motion` (EMG plus baseline steps,
+  accelerometer over the limit), `leads_off` (flat, leads-off flag set), `hypo` (a
+  **test pattern** ramping in tachycardia, QT prolongation, T-wave flattening and ST
+  depression) and `spike` (the legacy ×3 amplitude). Plus `POST /api/sim/settings`
+  (heart rate, battery, random artifacts) and `GET /api/sim/state`. Contract updated.
+  Random artifact windows are now actually corrupted, not just flagged.
+- **Simulated foot module** (`SimulatedFootModule`): the same `connected` / `eta_s` /
+  `read()` interface as `AuxGateway`, so simulated and real checks share one code path.
+  `run_simulated_foot_check` is gone. Modes are random, normal, elevated, invalid and
+  offline (`POST /api/sim/foot`). Offline behaves like an out-of-range real module
+  (503, `aux_connected: false`).
+- **Dashboard:** a Simulator panel at the top of the Engineering view (scenario cards
+  with the policies each one exercises, heart-rate and battery presets, the artifact
+  toggle, pause/resume, foot-module mode). A "Simulated data" notice on both views
+  says which streams are synthetic.
+- **Live run:** with the hypo scenario, the trained model stayed near 0.00 until about
+  75% pattern strength, then reached Verify (0.88). One dip to 0.59 reset the
+  confirmation (P4), then three consecutive windows ≥ 0.75 **fired the alert**. Foot
+  modes, live: normal → `scheduled_24h`, elevated (ΔT 2.69) → `scheduled_8h`, invalid →
+  `retry_1h`, offline → 503.
+- Tests: backend 90 passed (11 new in `test_simulator.py`), frontend 48 passed.
+  `test_simulator_reads_about_72_bpm` now turns random artifacts off, because artifact
+  windows really are corrupted now.
+
+**Correction to the earlier entries today:** the finding that "the trained model does
+not discriminate" (scores swinging 0.00–0.97 on normal ECG) was caused by the old
+simulator's non-ECG waveform, not by the model. On the realistic synthetic ECG
+(4 seeds, 244 scored windows each), the model scores:
+
+| Input | Mean score | Windows ≥ 0.75 |
+|---|---|---|
+| Normal shape, 72 bpm | 0.03 | 0% |
+| Normal shape, 97 bpm and 120 bpm (exercise-like) | 0.00 | 0% |
+| Hypo pattern shape at 72 bpm | 0.92 | 96% |
+| Hypo pattern shape at 97 bpm | 0.95 | 100% |
+
+So it responds to ECG morphology, not heart rate. **Still open:** all of this is
+synthetic. The hypo pattern was written from literature descriptions, not taken from
+recordings, and the model's performance on real labelled ECG is unknown (the
+notebook saved no evaluation output). The thresholds were not tuned to these results.
+
+### 2026-10-15 (later) — Patient/Engineering views, diagnostics endpoint, policies, training-filter parity
+
+**Done, verified live** (headless Chrome screenshots of all three pages against the
+running backend, with both BLE nodes connected).
+
+- **Patient view** redesigned: the risk card shows "--" with the reason (leads off,
+  moving, warming up with seconds left, disconnected), never a placeholder 0.00. A row
+  of three tiles (Heart rate, Activity, System summary), then the trend, then the
+  lime foot check. Fixed the clipped serif titles: `plain` cards had zero padding
+  plus `overflow: hidden`.
+- **Engineering view** (`?view=engineering`): raw stream, links, the signal pipeline
+  (acceptance bar split by leads-off and motion, motion against threshold, last-window
+  ADC stats), the model (buffer seconds, input spec, output, last score, inference
+  time), the controller (threshold scale with the backend's mode highlighted, Verify
+  confirmation dots, recent scores, cooldown) and the foot scheduler (rule table with
+  the backend's last `action` highlighted, raw last reading). Each panel links to the
+  policy that governs it.
+- **`GET /api/diagnostics`** (contract updated): one read-only snapshot of the
+  objects that make the decisions. Session counters were added to `AppState`.
+  `RiskModel.context()` reports buffer state. The status gains `risk_ready_in_s`.
+  **`/api/risk/current` now returns `score: null`** instead of a fake `0.0` before the
+  first scored window. The `foot_check_result` frame carries `action`.
+- **`docs/POLICIES.md`** plus an in-app **/policies** page with live numbers: the role
+  of each part, why the MPU6050 matters, policies P1–P10, and the failure-mode table.
+- **Found and fixed: the bench ECG firmware does not filter.** Neither the SRD's
+  0.5–40 Hz band-pass nor the 50 Hz notch is implemented on the device (it only
+  decimates), while the model was trained on filtered ECG. `app/ecg_filter.py`
+  reproduces the notebook's `filtfilt(butter(4))` + `iirnotch(50, 30)` at zero phase
+  in numpy (no scipy in the venv). It is verified: −3 dB at 0.5 Hz, unity passband,
+  null at 50 Hz. `OnnxRiskModel` applies it before z-scoring (`model_prefilter`).
+- Tests: backend 79 passed, frontend 47 passed.
+
+**Fell short / open:**
+- With the filter applied, the model **still** swings 0.004–0.965 between windows
+  that share 29 of their 30 s (simulated normal ECG, mean 0.55). Preprocessing
+  mismatch is ruled out as the cause; the model itself needs evaluation and
+  retraining.
+- The ECG firmware still doesn't filter on-device as the SRD says. The host filter
+  covers the model input only; the live waveform stays unfiltered.
+- The UI was checked with headless screenshots, not interactively (the Chrome
+  extension was not connected).
+
+### 2026-10-15 — Real foot module over BLE, trained ONNX model wired in, foot-check card
+
+**Done, verified on hardware.** Both ESP32 nodes ran at once over BLE: the primary
+(ECG) via `ble_gateway`, and the new foot module via the new `app/aux_gateway.py`
+(`GS_AUX_SOURCE=ble`). A manual check from `POST /api/foot/request` woke the real
+node and returned L 21.85 °C / R 22.18 °C, delta 0.33 °C, valid. The scheduler set
+`scheduled_24h` and the row was persisted. The firmware is
+`~/esp32-projects/glucosentry-aux-firmware` (outside this repo, like the primary's).
+
+- **Contract (`docs/API_CONTRACT.md`):** `foot_temp_result` is now pinned to 13 bytes
+  (`<fffB`). The status gains `aux_source`. Foot-check records and frames gain
+  `elevated`, decided by `controller.is_foot_check_elevated`, so the UI never compares
+  `delta_t`. `POST /api/foot/request` returns 503 when the real module is out of
+  range. The bench node idles awake (dividers unpowered, radio advertising), because
+  an ESP32 in deep sleep cannot receive a BLE write. True deep sleep needs a timer or
+  GPIO wake, which is still open.
+- **Model:** the D1NAMO CNN+BiLSTM (`glucosentry_cnn_bilstm.onnx`) takes exactly
+  `(batch, 1, 7500)`, which is 30 s at 250 Hz, z-scored per window, and outputs a
+  **logit**. Loaded as before, every `predict` would have raised. `OnnxRiskModel`
+  now buffers 30 s of accepted windows, resamples 100 → 250 Hz, z-scores, applies a
+  sigmoid to `*logit*` outputs, and returns `None` until the buffer is full.
+  `main.py` calls `model.reset()` on every rejected window, so the model never scores
+  across a gap. That means **no risk score for the first 30 s and for 30 s after any
+  motion or leads-off window.** Dynamic-length models behave as before.
+- **Frontend:** a lime `FootCheck` card (last result, countdown, foot-module state,
+  history with backend-decided Normal/Elevated/Invalid badges, and the manual
+  trigger, disabled when the real module is out of range).
+- **Tests:** backend 74 passed (4 new: buffering, reset, packet parsing), frontend 43
+  passed (3 new). The simulator path is unchanged and still the default for both
+  sources.
+
+**Fell short / open:**
+- **The trained model does not yet discriminate on our signal.** On simulated normal
+  ECG it scored 0.05–0.96 window to window (mean 0.68, 30 windows), and pure Gaussian
+  noise scored 0.11–0.59. With the current thresholds (0.30 / 0.55 / 0.75), normal
+  ECG will sit in Watch and can fire alerts. The training notebook saved no outputs,
+  so its validation F1 is unknown. The model needs evaluation (and probably more
+  training) before its alerts mean anything. Thresholds were deliberately not retuned
+  to hide this.
+- The thermistors on the bench are 100 Ω NTCs (marked 101), used with 1 kΩ fixed
+  resistors and Beta 3950 assumed. Readings are uncalibrated in absolute terms; left
+  and right agree within about 0.5 °C, which is what delta-T needs.
+- Not checked in a browser this session (the Chrome extension was not connected). The
+  page and modules serve, the API answers through the stack, and component tests
+  pass.
+
+### 2026-10-13 — BLE gateway live on hardware; heart rate, activity and leads-off UI; two bugs fixed
+
+**BLE (Phase 7).** Firmware (outside this repo, `esp32-projects/glucosentry-firmware`)
+is a GATT server per contract 2.1, advertising as `GlucoSentry-ECG`; it decimates
+250 → 100 Hz and computes SQI on-device, and still streams the serial format so
+`GS_SOURCE=serial` keeps working with the same build. Contract 2.1 now fixes the
+details left open: MTU ≥ 211, per-window order `sqi_flag → ecg_data → device_status`,
+uptime timestamp re-stamped by the host, battery 255 = unmeasured, a `motion` field in
+`device_status` (now 5 bytes), `mode` echoed back. `app/ble_gateway.py` scans by
+service UUID, pairs packets into windows, reconnects forever, and writes
+`controller_cmd` on mode changes (from `risk_update` *and* `status` frames — the latter
+found necessary because with leads off no `risk_update` frames exist) and `alert_cmd`
+on alerts. `GS_SOURCE=auto` now really scans and falls back to the simulator.
+
+Measured on hardware, no electrodes attached:
+- Scan finds the node; `/api/status` → `source: "ble", connected: true`, real
+  leads-off and motion (0.02–0.03 m/s² on a desk); full 100-sample windows.
+- 60 windows in 60 s over a watched minute with no drops.
+- Backend restart (host-side drop) → device re-advertises → reconnected in ~2 s.
+- `POST /api/controller/mode {"mode":"Watch"}` → device echoed `Watch` in
+  `device_status`.
+- One unexplained link stall ~18 s into the very first connection (stall timeout was
+  3 s then, now `ble_stall_timeout_s = 5`). Not reproduced since; watch for it.
+- bleak on BlueZ reports `mtu_size = 23` as a placeholder even when a larger MTU is
+  negotiated — the gateway now checks real packet length instead of trusting it.
+
+Not verified on hardware: `alert_cmd` → LED blink (needs a real alert, i.e. accepted
+windows); unit-tested only.
+
+**UI.** Heart rate card (backend `heart_rate.py` R-peak estimate, null until 8 s of
+clean signal, resets on any rejected window), Activity card (backend `moving` verdict
+and `motion_ms2`), ECG panel shows an explicit "Leads off" state and drops the
+leads-off zeros so the scale recovers instantly on reattach, plus a "window rejected"
+label. Risk trend moved to a full-width row. Contract section 3/4 updated first.
+
+**Bugs fixed.**
+- `tests/test_db_export.py` never closed its DB → aiosqlite's non-daemon thread hung
+  every full `pytest` run after all tests passed. Now a closing fixture; full suite
+  exits in ~1 s.
+- `simulator.py` computed the QRS phase from the per-window index, restarting the
+  rhythm every second: a doubled beat at each window boundary and an effective 60 bpm
+  instead of the intended 72. Found by the new heart-rate tests; now uses a global
+  sample index.
+
+Tests: backend 70 passed (new: test_ble_gateway 15, test_heart_rate 5), frontend 40
+passed (new: LiveVitals.test.jsx 9, format 4). Frontend not seen in a browser this
+session (extension unavailable) — verified by tests and a production build only.
+
+### 2026-10-13 — Interim USB serial source: real ESP32 data on the dashboard (Phase 7 partial)
+
+Hardware on the bench: 30-pin ESP32 DevKit (ESP32-D0WD-V3), ADS1115 (0x48) reading
+the AD8232 output on A0, AD8232 LO+/LO− on GPIO32/33, and an MPU6050-branded board
+that is actually an **MPU6500** (`WHO_AM_I = 0x70` -- the Adafruit MPU6050 library
+rejects it, so the firmware reads registers directly). Firmware streams
+`ecg_mV,leads_off,ax,ay,az` at 250 Hz over USB at 921600 baud; it lives outside this
+repo, per AGENTS.md.
+
+Done:
+- Contract first: `docs/API_CONTRACT.md` section 2.3 (`leads_off` field, nullable
+  `battery_pct`), new section 2.4 (serial line format and processing), and the
+  `source` enum gained `"serial"`.
+- `app/serial_gateway.py`: parses lines, groups 250 samples per 1 s window, converts mV
+  back to ADS1115 counts, decimates 250 → 100 Hz (3-tap smoother + interpolation),
+  SQI 0 on leads-off or accel-magnitude std above `serial_motion_sqi_threshold_ms2`.
+  Auto-detects the port, reconnects forever, flips `connected` false on loss.
+- `main.py` wires it behind the same `_handle_window` sink; `leads_off` now flows to
+  `/api/status` and `device_status` rows instead of the hard-coded `False`. No
+  simulator object is created for `serial`, so `/api/sim/*` answers 400 honestly.
+- Null battery is treated as sufficient in the controller (never forces Eco), the
+  foot-check scheduler and `POST /api/foot/request`.
+- Frontend: `DeviceStatus` labels `serial` as "USB serial". No other UI change needed.
+
+Verified (measured, not assumed):
+- `tests/test_serial_gateway.py`: 10 passed. Every other test file passes unchanged
+  (controller 23, db_export 3, model_registry 11, phase1 4, phase2 2). Frontend vitest:
+  27 passed.
+- Live, with the board attached and no electrodes on: `/api/status` →
+  `source: "serial", connected: true, leads_off: true, battery_pct: null, sqi: 0`;
+  `/ws/live` delivers `hello`, `status` and 100-sample `ecg_window` frames at ~1/s
+  (9 windows in 9.3 s); `session/summary` counts them all as rejected, as it should.
+
+Not yet verified -- do not tick:
+- An accepted (sqi=1) window from real electrodes; none were available. The motion
+  threshold (1.0 m/s²) and `ecg_normalize_scale` are still provisional against real
+  ADS1115 counts (open question 3).
+- The dashboard in a browser on serial data (backend + WebSocket checked directly).
+
+Found, pre-existing, not fixed: `pytest` on `tests/test_db_export.py` passes its 3 tests
+but the process never exits (reproduced on the unmodified commit in a clean worktree),
+so a full `pytest` run hangs at the end. Likely an un-closed aiosqlite connection in
+that test file.
 
 ### 2026-09-20 — Live browser verification, /kit removed, Model management page added; two more real bugs found and fixed
 This entry covers a follow-up session using an actually-connected browser

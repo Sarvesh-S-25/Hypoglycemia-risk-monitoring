@@ -19,6 +19,9 @@ from typing import Optional, Protocol
 
 import numpy as np
 
+from app.config import settings
+from app.ecg_filter import clean_ecg
+
 logger = logging.getLogger("glucosentry.inference")
 
 
@@ -32,9 +35,21 @@ class RiskModel(Protocol):
     #: someone believes their trained model is running.
     name: str
 
-    def predict(self, window: np.ndarray) -> float:
+    def predict(self, window: np.ndarray) -> Optional[float]:
         """window: (1, 1, N) float32, normalized by signal_pipeline. Returns
-        a risk score in [0.0, 1.0]."""
+        a risk score in [0.0, 1.0], or None while a model that needs more
+        context than one window is still filling its buffer."""
+        ...
+
+    def reset(self) -> None:
+        """A window was rejected, so the accepted ECG is no longer
+        contiguous. Models that buffer across windows drop their buffer."""
+        ...
+
+    def context(self) -> dict:
+        """How much contiguous ECG the model needs and has, for the
+        diagnostics view and the UI's "risk ready in N s" hint:
+        {"needed_s", "buffered_s", "input_len", "input_rate_hz", "output"}."""
         ...
 
 
@@ -84,23 +99,88 @@ class StubRiskModel:
         score = 0.5 * self._baseline + 0.85 * amplitude_component
         return float(np.clip(score, 0.0, 1.0))
 
+    def reset(self) -> None:
+        pass  # scores each window on its own; nothing buffered
+
+    def context(self) -> dict:
+        return {"needed_s": 0.0, "buffered_s": 0.0, "input_len": None,
+                "input_rate_hz": settings.ecg_sample_rate_hz, "output": "heuristic"}
+
 
 class OnnxRiskModel:
     """Wraps a trained CNN+BiLSTM exported to ONNX and served via ONNX
     Runtime (SRD 2, "ML" row). Model training and export happen in the
-    separate ML pipeline; this class only loads and runs the artifact."""
+    separate ML pipeline; this class only loads and runs the artifact.
+
+    A model exported with a fixed input length (the D1NAMO CNN+BiLSTM takes
+    exactly 7500 samples: 30 s at 250 Hz) cannot score a 1 s, 100 Hz window
+    on its own. For those, accepted windows are buffered until there is
+    `model_window_s` of contiguous ECG, which is resampled from
+    `ecg_sample_rate_hz` to `model_input_rate_hz`, band-pass + notch filtered
+    (app/ecg_filter.py; the bench firmware doesn't filter), and z-scored per
+    window, matching the training notebook's clean_ecg and ECGWindowDataset.
+    The model then scores the most recent 30 s once per incoming window (a
+    rolling window).
+
+    An output named like "*logit*" is passed through a sigmoid; anything
+    else is assumed to already be a probability and is only clipped."""
 
     def __init__(self, model_path: str) -> None:
         import onnxruntime as ort  # lazy import, see module docstring
 
         self._session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-        self._input_name = self._session.get_inputs()[0].name
+        model_input = self._session.get_inputs()[0]
+        self._input_name = model_input.name
+        length = model_input.shape[-1] if model_input.shape else None
+        self._fixed_len: Optional[int] = length if isinstance(length, int) else None
+        self._is_logit = "logit" in self._session.get_outputs()[0].name.lower()
+        self._buffer = np.empty(0, dtype=np.float32)
         self.name = f"ONNX: {Path(model_path).name}"
-        logger.info("loaded ONNX risk model from %s", model_path)
+        logger.info(
+            "loaded ONNX risk model from %s (input length %s, logit output: %s)",
+            model_path, self._fixed_len or "dynamic", self._is_logit,
+        )
 
-    def predict(self, window: np.ndarray) -> float:
-        outputs = self._session.run(None, {self._input_name: window.astype(np.float32)})
+    def predict(self, window: np.ndarray) -> Optional[float]:
+        if self._fixed_len is None:
+            return self._run(window.astype(np.float32))
+
+        need = int(settings.model_window_s * settings.ecg_sample_rate_hz)
+        self._buffer = np.concatenate([self._buffer, window.reshape(-1).astype(np.float32)])[-need:]
+        if self._buffer.size < need:
+            return None
+
+        t_in = np.arange(need) / settings.ecg_sample_rate_hz
+        t_out = np.arange(self._fixed_len) / settings.model_input_rate_hz
+        resampled = np.interp(t_out, t_in, self._buffer)
+        if settings.model_prefilter:
+            resampled = clean_ecg(resampled, settings.model_input_rate_hz)
+        z = (resampled - resampled.mean()) / (resampled.std() + 1e-8)
+        return self._run(z.astype(np.float32).reshape(1, 1, -1))
+
+    def reset(self) -> None:
+        self._buffer = np.empty(0, dtype=np.float32)
+
+    def context(self) -> dict:
+        if self._fixed_len is None:
+            return {"needed_s": 0.0, "buffered_s": 0.0, "input_len": None,
+                    "input_rate_hz": settings.ecg_sample_rate_hz, "output": self._output_kind()}
+        return {
+            "needed_s": float(settings.model_window_s),
+            "buffered_s": round(self._buffer.size / settings.ecg_sample_rate_hz, 1),
+            "input_len": self._fixed_len,
+            "input_rate_hz": settings.model_input_rate_hz,
+            "output": self._output_kind(),
+        }
+
+    def _output_kind(self) -> str:
+        return "logit -> sigmoid" if self._is_logit else "probability"
+
+    def _run(self, x: np.ndarray) -> float:
+        outputs = self._session.run(None, {self._input_name: x})
         score = float(np.asarray(outputs[0]).reshape(-1)[0])
+        if self._is_logit:
+            score = 1.0 / (1.0 + np.exp(-score))
         return float(np.clip(score, 0.0, 1.0))
 
 

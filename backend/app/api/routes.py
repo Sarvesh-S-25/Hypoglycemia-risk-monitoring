@@ -17,7 +17,8 @@ from fastapi.responses import StreamingResponse
 
 from app import model_registry
 from app.config import settings
-from app.controller import schedule_next_foot_check
+from app.controller import is_foot_check_elevated, schedule_next_foot_check
+from app.simulator import FOOT_MODES, SCENARIOS, SimulatedFootModule
 from app.events import bus
 from app.inference import OnnxRiskModel, StubRiskModel, load_risk_model
 from app.models import (
@@ -36,6 +37,9 @@ from app.models import (
     RiskHistoryPoint,
     RiskHistoryResponse,
     SessionSummaryResponse,
+    SimFootRequest,
+    SimScenarioRequest,
+    SimSettingsRequest,
     StatusResponse,
 )
 
@@ -59,11 +63,19 @@ async def get_status(request: Request) -> StatusResponse:
 async def get_risk_current(request: Request) -> RiskCurrentResponse:
     state = gs(request)
     return RiskCurrentResponse(
-        score=state.last_risk_score if state.last_risk_score is not None else 0.0,
+        score=state.last_risk_score,
         mode=state.controller.state.mode,
-        timestamp=state.last_risk_ts if state.last_risk_ts is not None else time.time(),
+        timestamp=state.last_risk_ts,
         alerting=state.last_alerting,
     )
+
+
+@router.get("/diagnostics")
+async def get_diagnostics(request: Request) -> dict:
+    """The backend's working state -- counters, the model's buffer, the
+    controller's thresholds and confirmation count, the foot scheduler -- for
+    the engineering view. Read-only; nothing here is a second decision path."""
+    return gs(request).diagnostics_dict()
 
 
 @router.get("/risk/history", response_model=RiskHistoryResponse)
@@ -105,6 +117,7 @@ async def get_foot_history(request: Request, limit: int = 50) -> FootHistoryResp
             t_right=r["t_right"],
             delta_t=r["delta_t"],
             valid=bool(r["valid"]),
+            elevated=is_foot_check_elevated(r["delta_t"]),
             next_check_scheduled=r["next_check_scheduled"],
             action=r["action"],
         )
@@ -120,16 +133,33 @@ async def post_foot_request(request: Request) -> FootRequestResponse:
     Responds immediately; the result arrives later over the WebSocket as a
     `foot_check_result` frame, because the real wake-to-result cycle takes
     several seconds (docs/API_CONTRACT.md section 3). In simulator mode, the
-    result is synthesized by `_run_simulated_foot_check` in app/main.py.
+    result comes from app/simulator.SimulatedFootModule; with GS_AUX_SOURCE=ble
+    the real foot module is woken via app/aux_gateway.py. Same path for both.
     """
     state = gs(request)
 
     if state.foot_check_busy:
         raise HTTPException(status_code=409, detail="auxiliary node busy")
 
-    battery_pct = state.last_window.battery_pct if state.last_window else 100
-    if battery_pct < settings.battery_aux_min:
+    # None = unmeasured (USB bus-powered); treated as sufficient, per API_CONTRACT 2.3.
+    battery_pct = state.last_window.battery_pct if state.last_window else None
+    if battery_pct is not None and battery_pct < settings.battery_aux_min:
         raise HTTPException(status_code=503, detail="battery insufficient for auxiliary wake")
+
+    gateway = state.aux_gateway
+    if gateway is not None and getattr(gateway, "rendezvous", False):
+        # The real node deep-sleeps and can't be woken on demand: queue the
+        # check for its next check-in (app/main.py _aux_checkin).
+        if gateway.missing:
+            raise HTTPException(status_code=503, detail="foot module not found")
+        state.foot_check_requested = True
+        bus.publish("status", state.status_dict())
+        wake_ts = gateway.next_wake_ts if not gateway.connected and gateway.next_wake_ts else time.time()
+        eta = max(gateway.eta_s, int(round(wake_ts - time.time())) + settings.aux_eta_s + 2)
+        return FootRequestResponse(requested=True, request_id=f"fc_queued_{uuid.uuid4().hex[:8]}", eta_s=eta)
+
+    if gateway is not None and not gateway.connected:
+        raise HTTPException(status_code=503, detail="foot module not connected")
 
     state.foot_check_busy = True
     request_id = f"fc_{uuid.uuid4().hex[:8]}"
@@ -137,13 +167,14 @@ async def post_foot_request(request: Request) -> FootRequestResponse:
     # Import here (not at module top) to avoid a circular import: main.py
     # imports this router, and the foot-check runner lives in main.py because
     # it needs the same AppState/event-bus wiring the source task uses.
-    from app.main import run_simulated_foot_check
+    from app.main import run_foot_check
 
     import asyncio
 
-    asyncio.create_task(run_simulated_foot_check(request.app, request_id))
+    asyncio.create_task(run_foot_check(request.app, request_id))
 
-    return FootRequestResponse(requested=True, request_id=request_id, eta_s=settings.foot_check_eta_s)
+    eta_s = state.aux_gateway.eta_s if state.aux_gateway is not None else settings.foot_check_eta_s
+    return FootRequestResponse(requested=True, request_id=request_id, eta_s=eta_s)
 
 
 @router.post("/controller/mode", response_model=ControllerModeResponse)
@@ -336,6 +367,71 @@ async def post_alert_ack(request: Request, alert_id: int) -> AlertAckResponse:
 
 
 # --- Development-only simulator controls (config.gs_enable_sim) -------------
+
+
+def _require_sim() -> None:
+    if not settings.gs_enable_sim:
+        raise HTTPException(status_code=404, detail="simulator controls disabled")
+
+
+def _sim_state(state) -> dict:
+    foot = state.aux_gateway.state() if isinstance(state.aux_gateway, SimulatedFootModule) else None
+    return {
+        "ecg": state.simulator.state() if state.simulator is not None else None,
+        "foot": foot,
+        "scenarios": list(SCENARIOS),
+        "foot_modes": list(FOOT_MODES),
+    }
+
+
+@router.get("/sim/state")
+async def get_sim_state(request: Request) -> dict:
+    _require_sim()
+    return _sim_state(gs(request))
+
+
+@router.post("/sim/scenario")
+async def post_sim_scenario(request: Request, body: SimScenarioRequest) -> dict:
+    _require_sim()
+    state = gs(request)
+    if state.simulator is None:
+        raise HTTPException(status_code=400, detail="no simulated ECG (GS_SOURCE is not simulator)")
+    try:
+        state.simulator.set_scenario(body.name, body.duration_s)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _sim_state(state)
+
+
+@router.post("/sim/settings")
+async def post_sim_settings(request: Request, body: SimSettingsRequest) -> dict:
+    _require_sim()
+    state = gs(request)
+    if state.simulator is None:
+        raise HTTPException(status_code=400, detail="no simulated ECG (GS_SOURCE is not simulator)")
+    sim = state.simulator
+    if body.heart_rate_bpm is not None:
+        sim.base_hr_bpm = body.heart_rate_bpm
+    if body.battery_pct is not None:
+        sim.set_battery(body.battery_pct)
+    if body.random_artifacts is not None:
+        sim.random_artifacts = body.random_artifacts
+    return _sim_state(state)
+
+
+@router.post("/sim/foot")
+async def post_sim_foot(request: Request, body: SimFootRequest) -> dict:
+    _require_sim()
+    state = gs(request)
+    if not isinstance(state.aux_gateway, SimulatedFootModule):
+        raise HTTPException(status_code=400, detail="no simulated foot module (GS_AUX_SOURCE is not simulator)")
+    try:
+        state.aux_gateway.set_mode(body.mode)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    state.aux_connected = state.aux_gateway.connected
+    bus.publish("status", state.status_dict())
+    return _sim_state(state)
 
 
 @router.post("/sim/{action}")

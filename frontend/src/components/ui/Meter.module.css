@@ -1,0 +1,27 @@
+.track {
+  position: relative;
+  height: 8px;
+  border-radius: var(--gs-radius-pill);
+  background: var(--gs-surface-grey);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: var(--gs-radius-pill);
+  transition: width var(--gs-transition);
+}
+
+.ink { background: var(--gs-surface-dark); }
+.ok { background: var(--gs-ok); }
+.warn { background: var(--gs-warn); }
+.danger { background: var(--gs-danger); }
+
+.marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--gs-ink);
+}

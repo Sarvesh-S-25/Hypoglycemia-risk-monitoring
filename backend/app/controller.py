@@ -86,7 +86,9 @@ class Controller:
         else:
             logger.info("controller: manual override cleared, resuming automatic mode selection")
 
-    def evaluate(self, score: float, battery_pct: int, sqi: int, timestamp: Optional[float] = None) -> ControllerDecision:
+    def evaluate(
+        self, score: float, battery_pct: Optional[int], sqi: int, timestamp: Optional[float] = None
+    ) -> ControllerDecision:
         ts = timestamp if timestamp is not None else time.time()
         s = self.state
         s.recent_scores.append(score)
@@ -156,6 +158,8 @@ class Controller:
         # battery_pct is passed into evaluate() and stashed there so
         # _select_mode (called from within the same evaluate() invocation)
         # can read it without threading it through every helper's signature.
+        # None = source can't measure battery (USB serial); treated as
+        # sufficient, so it never forces Eco (docs/API_CONTRACT.md section 2.3).
         return self._last_battery_pct is not None and self._last_battery_pct < settings.battery_eco_pct
 
     def _is_trending_up(self) -> bool:
@@ -200,8 +204,7 @@ def schedule_next_foot_check(
     if not last_result_valid:
         return FootCheckDecision(action="retry_1h", next_check_scheduled=now + settings.foot_check_invalid_retry_s)
 
-    elevated = last_delta_t is not None and last_delta_t > settings.foot_check_elevated_threshold_c
-    if elevated:
+    if is_foot_check_elevated(last_delta_t):
         return FootCheckDecision(
             action="scheduled_8h", next_check_scheduled=now + settings.foot_check_elevated_interval_s
         )
@@ -210,9 +213,53 @@ def schedule_next_foot_check(
     )
 
 
-def should_fire_foot_check(*, scheduled_time: Optional[float], battery_pct: int, now: Optional[float] = None) -> bool:
+def is_foot_check_elevated(delta_t: Optional[float]) -> Optional[bool]:
+    """delta_t above the IWGDF reference threshold (background, not a
+    diagnostic claim). None when there is no valid reading to judge. The one
+    place this comparison lives, so the scheduler and the UI's flag agree."""
+    if delta_t is None:
+        return None
+    return delta_t > settings.foot_check_elevated_threshold_c
+
+
+def should_fire_foot_check(
+    *, scheduled_time: Optional[float], battery_pct: Optional[int], now: Optional[float] = None
+) -> bool:
     """SRD 4.4: 'if scheduled_time_reached and battery_sufficient: wake_auxiliary_node()'."""
     now = now if now is not None else time.time()
     if scheduled_time is None:
         return False
-    return now >= scheduled_time and battery_pct >= settings.battery_aux_min
+    # None = unmeasured (bus-powered); treated as sufficient, per API_CONTRACT 2.3.
+    battery_ok = battery_pct is None or battery_pct >= settings.battery_aux_min
+    return now >= scheduled_time and battery_ok
+
+
+# --- Foot-module check-ins (deep-sleeping node) ------------------------------
+
+
+def foot_checkin_should_read(
+    *,
+    now: float,
+    scheduled_time: Optional[float],
+    battery_pct: Optional[int],
+    manual_requested: bool,
+    busy: bool,
+) -> bool:
+    """The node checked in from deep sleep: take a reading now? Yes for a
+    pending manual request (dashboard or the node's own button), otherwise
+    only when the scheduled check is due and the battery allows it."""
+    if busy:
+        return False
+    if manual_requested:
+        return True
+    return should_fire_foot_check(scheduled_time=scheduled_time, battery_pct=battery_pct, now=now)
+
+
+def foot_sleep_seconds(*, now: float, scheduled_time: Optional[float]) -> float:
+    """How long to tell the node to sleep: until the next scheduled check,
+    within [aux_min_sleep_s, aux_max_sleep_s]. A check that is already due
+    but was deferred (low battery) backs off by the maximum instead of
+    bringing the node back every few seconds."""
+    if scheduled_time is None or scheduled_time <= now:
+        return settings.aux_max_sleep_s
+    return min(max(scheduled_time - now, settings.aux_min_sleep_s), settings.aux_max_sleep_s)

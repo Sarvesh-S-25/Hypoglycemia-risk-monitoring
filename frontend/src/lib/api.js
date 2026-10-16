@@ -42,6 +42,7 @@ export const api = {
   base: API_BASE,
 
   getStatus: () => request('/api/status'),
+  getDiagnostics: () => request('/api/diagnostics'),
   getRiskCurrent: () => request('/api/risk/current'),
   getRiskHistory: (range = '1h') => request(`/api/risk/history?range=${range}`),
   getEcgLatest: () => request('/api/ecg/latest'),
@@ -52,6 +53,10 @@ export const api = {
   getSessionSummary: () => request('/api/session/summary'),
   ackAlert: (id) => request(`/api/alerts/${id}/ack`, { method: 'POST' }),
   simAction: (action) => request(`/api/sim/${action}`, { method: 'POST' }),
+  simScenario: (name, durationS) =>
+    request('/api/sim/scenario', { method: 'POST', body: JSON.stringify({ name, duration_s: durationS ?? null }) }),
+  simSettings: (settings) => request('/api/sim/settings', { method: 'POST', body: JSON.stringify(settings) }),
+  simFoot: (mode) => request('/api/sim/foot', { method: 'POST', body: JSON.stringify({ mode }) }),
 
   // Model management -- upload a trained .onnx file and it immediately
   // starts scoring live data; select/reset switch between an already-

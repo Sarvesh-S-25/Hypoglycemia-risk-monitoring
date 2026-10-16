@@ -17,7 +17,17 @@ export default function ECGWaveform({ window: ecgWindow, height = 220 }) {
   const rafRef = useRef(null)
   const bufferRef = useRef([]) // flat sample history for smooth scrolling across window boundaries
 
+  const leadsOff = ecgWindow?.leads_off === true
+
   useEffect(() => {
+    if (ecgWindow?.leads_off) {
+      // The device sends flat zeros while leads are off. Plotting them draws a
+      // dead line, and keeping them in the buffer would squash the vertical
+      // scale for the first ~10 s after the electrodes go back on -- so drop
+      // the history and show the leads-off state instead.
+      bufferRef.current = []
+      return
+    }
     if (ecgWindow?.samples?.length) {
       // Append new samples; keep a rolling buffer wide enough for ~10s at
       // the reported sample rate (SRD 5.1's "last ~10 sec").
@@ -79,15 +89,33 @@ export default function ECGWaveform({ window: ecgWindow, height = 220 }) {
     return () => cancelAnimationFrame(rafRef.current)
   }, [ecgWindow?.sqi])
 
-  const hasData = bufferRef.current.length > 0 || (ecgWindow?.samples?.length ?? 0) > 0
+  const hasData = bufferRef.current.length > 0 || ((ecgWindow?.samples?.length ?? 0) > 0 && !leadsOff)
+  const rejected = ecgWindow?.sqi === 0 && !leadsOff && hasData
 
   return (
     <div style={{ position: 'relative', height }}>
       <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
-      {!hasData && (
+      {leadsOff && (
+        <div style={{ position: 'absolute', inset: 0 }} role="status">
+          <EmptyState
+            title="Leads off"
+            hint="Attach the electrodes (RA, LA, RL) to see the ECG trace."
+          />
+        </div>
+      )}
+      {!leadsOff && !hasData && (
         <div style={{ position: 'absolute', inset: 0 }}>
           <EmptyState title="No ECG signal" hint="Waiting for device or simulator data..." />
         </div>
+      )}
+      {rejected && (
+        <span
+          className="gs-label"
+          role="status"
+          style={{ position: 'absolute', top: 8, left: 12, color: 'var(--gs-warn)' }}
+        >
+          Window rejected -- motion or noise
+        </span>
       )}
     </div>
   )
