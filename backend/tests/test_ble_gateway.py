@@ -122,3 +122,35 @@ async def test_manual_mode_change_reaches_device_via_status_frame():
     with pytest.raises(asyncio.CancelledError):
         await task
     assert client.writes == [(settings.ble_char_controller_cmd, bytes([3]))]
+
+
+async def test_failed_scans_pause_and_log_once(monkeypatch, caplog):
+    """A scan that fails returns at once (e.g. BlueZ "Operation already in
+    progress"). The gateway must pause between attempts instead of spinning,
+    and report the outage once rather than on every attempt."""
+    import logging
+
+    import app.ble_gateway as ble
+
+    calls = 0
+
+    async def failing_scan(timeout):
+        nonlocal calls
+        calls += 1
+        return None
+
+    async def unused(*_):
+        raise AssertionError("no device was found, so nothing should be called")
+
+    monkeypatch.setattr(ble, "find_device", failing_scan)
+    monkeypatch.setattr(settings, "ble_rescan_pause_s", 0.05)
+    caplog.set_level(logging.INFO, logger="glucosentry.ble")
+
+    task = asyncio.create_task(BleGateway().run(unused, unused))
+    await asyncio.sleep(0.3)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert 2 <= calls <= 8  # ~6 at a 0.05 s pause; without the pause, thousands
+    assert sum("no GlucoSentry node found" in r.message for r in caplog.records) == 1

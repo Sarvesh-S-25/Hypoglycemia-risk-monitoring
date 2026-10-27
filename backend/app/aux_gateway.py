@@ -141,7 +141,7 @@ class AuxGateway:
             while True:
                 device = await find_aux_device(settings.gs_ble_scan_timeout_s)
                 if device is None:
-                    await asyncio.sleep(1.0)  # a failed scan can return instantly
+                    await asyncio.sleep(settings.ble_rescan_pause_s)  # a failed scan can return instantly
                     continue
                 try:
                     await self._session(device, on_link_change, on_checkin)

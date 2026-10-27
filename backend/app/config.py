@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # auto: try BLE, fall back to simulator after GS_BLE_SCAN_TIMEOUT_S.
     gs_source: str = "simulator"
     gs_ble_scan_timeout_s: float = 8.0
+    # Pause before scanning again when a scan finds nothing. A scan that fails
+    # (adapter busy with the other gateway's scan, BlueZ down) returns at once,
+    # so without this pause the gateways spin and flood the log.
+    ble_rescan_pause_s: float = 1.0
 
     # --- USB serial source (GS_SOURCE=serial) --------------------------------
     gs_serial_port: str = ""           # empty auto-detects /dev/ttyACM* then /dev/ttyUSB*
