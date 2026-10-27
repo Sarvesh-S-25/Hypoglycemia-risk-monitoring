@@ -3,8 +3,8 @@
 GlucoSentry is an ECG-based adaptive hypoglycemia monitoring system. This repository
 holds the **dashboard and its connectivity layer**: the React frontend, the FastAPI
 backend, SQLite persistence, the controller, the BLE gateway and a hardware
-simulator. ML training and ESP32 firmware live elsewhere and are integrated through
-fixed interfaces.
+simulator, plus the ESP32 firmware for both nodes under `firmware/`. ML training
+lives elsewhere and is integrated through a fixed interface (an ONNX file).
 
 ## Read before writing code
 
@@ -75,6 +75,7 @@ docs/            PLAN.md, API_CONTRACT.md, DESIGN_SYSTEM.md, SRD_SUMMARY.md
 backend/app/     FastAPI app, controller, pipeline, BLE gateway, simulator, DB
 backend/tests/   pytest, controller logic first
 frontend/src/    React dashboard (see PLAN.md section 2.2 for the module map)
+firmware/        ESP32 PlatformIO projects: ecg-node/, foot-module/ (see firmware/README.md)
 UPDATES.md       status of record, updated at every phase boundary
 AGENTS.md        this file
 ```

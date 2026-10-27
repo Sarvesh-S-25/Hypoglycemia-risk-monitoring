@@ -120,6 +120,15 @@ Answer these as the information arrives; do not block on them.
 
 ## Log
 
+### 2026-10-16 — Firmware moved into the repo
+
+Both ESP32 projects now live under `firmware/`: `ecg-node/` (was
+`~/esp32-projects/glucosentry-firmware`) and `foot-module/` (was
+`~/esp32-projects/glucosentry-aux-firmware`). The old paths are symlinks on the dev
+machine, so existing commands still work. Both build from the new location.
+`firmware/README.md` covers build and flash commands and wiring. AGENTS.md's repo map
+is updated. PlatformIO build output (`.pio/`) is ignored.
+
 ### 2026-10-15 (night) — Foot module deep sleep with host-set wake times
 
 **Done, verified on hardware.** The foot module now deep-sleeps between check-ins,

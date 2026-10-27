@@ -27,3 +27,6 @@ frontend/.vite/
 .DS_Store
 Thumbs.db
 *.log
+
+# PlatformIO build output
+firmware/**/.pio/
