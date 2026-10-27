@@ -11,7 +11,7 @@ actually true in the code.
 | | |
 |---|---|
 | **Phase** | 6 — Foot-check and session views (foot check done; session views not started) |
-| **Last updated** | 2026-10-15 |
+| **Last updated** | 2026-10-27 |
 | **Next action** | Phase 6: SessionSummary (mode-time breakdown, CSV export button). Evaluate the trained model on real labelled ECG (it has only been checked on synthetic ECG; see the 2026-10-15 simulator entry) |
 | **Blocked on** | Nothing |
 | **Runnable end to end?** | Yes, verified live in an actual connected browser (Claude-in-Chrome), not just via curl: navigated the real dashboard, scrolled through every panel, clicked through to the Model page and back, uploaded a real ONNX file through the actual file input, and confirmed zero console errors throughout. The main dashboard (ECG waveform, risk trend, mode indicator, device status, alert banner) and a new Model management page (upload/select/reset a trained `.onnx` risk model, applied to live data immediately) are both built, tested, and verified working end to end. Foot-check panel and session summary views do not exist yet. `/kit` (the Phase 4 style-guide gallery) was removed entirely at the user's request -- the design tokens it was built to check now only need to look right in the real dashboard, which has been visually confirmed. |
@@ -119,6 +119,26 @@ Answer these as the information arrives; do not block on them.
    `eta_s: 6` in `POST /api/foot/request` is a placeholder.
 
 ## Log
+
+### 2026-10-27 — ECG BLE gateway no longer spins when a scan fails
+
+Seen live during the 2026-10-20 demo: after the ECG node's link dropped, the
+backend logged "no GlucoSentry node found" about 8,000 times in 9 seconds. A
+failed scan (BlueZ "Operation already in progress" while the foot gateway was
+scanning) returns instantly, and `BleGateway.run` went straight back to scanning
+with no pause. The loop never yielded, so it also starved the rest of the event
+loop while it spun.
+
+- New `ble_rescan_pause_s` (1.0 s) in `config.py`; the ECG gateway waits that long
+  after a scan that finds nothing. The foot gateway already paused 1.0 s, hard-coded;
+  it now uses the same setting.
+- "No node found" is logged once per outage instead of once per scan.
+- New test `test_failed_scans_pause_and_log_once`. Against the old code it hangs
+  (killed by a 60 s timeout); with the fix it passes. Backend suite: 101 pass.
+- Not changed: the foot gateway still logs "aux: scan failed" once per second while
+  the adapter is busy. Separately, if the ECG node is paired in BlueZ, Linux can
+  connect to it by itself so it stops advertising; `bluetoothctl disconnect` (or
+  `remove`) frees it.
 
 ### 2026-10-16 — Firmware moved into the repo
 

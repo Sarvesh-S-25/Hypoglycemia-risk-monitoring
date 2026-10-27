@@ -115,13 +115,18 @@ class BleGateway:
         on_link_change: Callable[[bool], Awaitable[None]],
         device: Optional[BLEDevice] = None,
     ) -> None:
+        searching = False  # log "not found" once per outage, not once per scan
         try:
             while True:
                 if device is None:
                     device = await find_device(settings.gs_ble_scan_timeout_s)
                     if device is None:
-                        logger.info("ble: no GlucoSentry node found, rescanning")
+                        if not searching:
+                            logger.info("ble: no GlucoSentry node found, still scanning")
+                            searching = True
+                        await asyncio.sleep(settings.ble_rescan_pause_s)
                         continue
+                searching = False
                 try:
                     await self._session(device, on_window, on_link_change)
                 except (BleakError, OSError, asyncio.TimeoutError) as e:
